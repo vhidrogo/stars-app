@@ -86,8 +86,25 @@ class CashAnomalies:
         
         
     def _transpose_periods(self):
-        pass
-    
+        transposed = {}
+        
+        for row in self.df.itertuples(index=False):
+            transaction_type = row[0]
+            print(row)
+            if transaction_type not in transposed:
+                amounts = {period: 0 for period in self.period_headers}
+                
+                transposed[transaction_type] = amounts
+                
+            period = row[1]
+            amount = row[-1]
+            
+            amounts[period] += amount
+        
+        self.df = [
+            (transaction_type, ) + tuple(amounts.values())
+            for transaction_type, amounts in transposed.items() 
+            ]    
     
     def _set_output_path(self):
         name = f'{self.jurisdiction.id} {self.selections.period} {OUTPUT_NAME}'
