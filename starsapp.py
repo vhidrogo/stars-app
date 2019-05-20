@@ -21,13 +21,13 @@ import traceback
 
 from adjustments import BusinessLevelAdjustments
 from businessdetailtotals import BusinessDetailTotals
-from src import businesslookup
+import businesslookup
 from cashanomalies import CashAnomalies
 from cashreceiptsanalysis import CashReceiptsAnalysis
 from ccomp import Ccomp
-from src import cdtfaallocations
+import cdtfaallocations
 from comboboxautocomplete import ComboboxAutoComplete
-from src import comparefiles
+import comparefiles
 import constants
 from countypool import CountyPool
 import database
@@ -36,13 +36,13 @@ from dropfile import DropDetail
 from dropfile import DropDetailJoin
 from econtotals import EconTotals
 from exportbusinessdetail import ExportBusinessDetail
-from src import loadbusinesscodetotals
-from src import loadgeoranges
+import loadbusinesscodetotals
+import loadgeoranges
 from packet import CompilePacket
-from src import parseaddresses
+import parseaddresses
 from priorperiodpayments import PriorPeriodPayments
 from progress import Progress
-from src import rolluptotals
+import rolluptotals
 from showjurisdictioninformation import ShowJurisdictionInformation
 from stcl import Stcl
 from summary import Summary
@@ -50,9 +50,9 @@ from rundictionary import RunDictionary
 from updatebusinesscodetotals import UpdateBusinessCodeTotals
 from selections import Selections
 from tooltip import ToolTip
-from src import updatepayment
+import updatepayment
 import utilities
-from src import verifypermit
+import verifypermit
 
 
 class Model(threading.Thread):

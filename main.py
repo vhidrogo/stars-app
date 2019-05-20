@@ -124,7 +124,7 @@ if __name__ == '__main__':
     splash_screen = SplashScreen()
     splash_screen.import_modules()
     
-    from src import starsapp
+    import starsapp
     
     app = starsapp.Controller()
     app.start()
