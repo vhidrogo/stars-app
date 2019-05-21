@@ -20,6 +20,7 @@ from TkinterDnD2 import TkinterDnD
 import traceback
 
 from adjustments import BusinessLevelAdjustments
+from annualgrowthchart import AnnualizedGrowthChart
 from businessdetailtotals import BusinessDetailTotals
 import businesslookup
 from cashanomalies import CashAnomalies
@@ -83,7 +84,13 @@ class Model(threading.Thread):
                 self.counter = i
                 
                 try:
-                    if process == 'Business Detail Totals':
+                    if process == 'Annualized Growth by Economic Category':
+                        annual_growth_chart = AnnualizedGrowthChart(
+                            self, self.selections
+                            )
+                        annual_growth_chart.main(jurisdiction)
+                        
+                    elif process == 'Business Detail Totals':
                         business_detail_totals = BusinessDetailTotals(
                             self, self.selections
                             )
@@ -207,7 +214,7 @@ class View(TkinterDnD.Tk):
         
         self.option_frm_one_widgets = [
             'Ascending', 'Count', 'Estimates', 'Exclude Files', 'Geos', 
-            'Order', 'PDF Only', 'type'
+            'Order', 'PDF Only', 'type', 'Years'
             ]
         
         self.option_frm_two_widgets = [
@@ -225,6 +232,7 @@ class View(TkinterDnD.Tk):
         self.option_cbos['Order'] = self.order_cbo
         self.option_cbos['Output'] = self.output_cbo
         self.option_cbos['type'] = self.type_cbo
+        self.option_cbos['Years'] = self.years_cbo
         
         self.option_widgets['Ascending'] = self.ascending_chk
         self.option_widgets['Estimates'] = self.estimates_chk
@@ -238,6 +246,7 @@ class View(TkinterDnD.Tk):
         self.option_widgets['Order'] = self.order_frm
         self.option_widgets['Output'] = self.output_frm
         self.option_widgets['type'] = self.type_frm
+        self.option_widgets['Years'] = self.years_frm
         
         self._configure_option_cbos()
         
@@ -294,6 +303,7 @@ class View(TkinterDnD.Tk):
         self.order_frm = ttk.Frame(self.options_frm_one)
         self.output_frm = ttk.Frame(self.options_frm_two)
         self.type_frm = ttk.Frame(self.options_frm_one)
+        self.years_frm = ttk.Frame(self.options_frm_one)
         
 
     def _make_widgets(self):
@@ -445,6 +455,9 @@ class View(TkinterDnD.Tk):
         self.type_lbl = ttk.Label(self.type_frm, text='Type:')
         self.type_cbo = ttk.Combobox(self.type_frm)
         
+        self.years_lbl = ttk.Label(self.years_frm, text='Years:')
+        self.years_cbo = ttk.Combobox(self.years_frm)
+        
         self.run_btn = ttk.Button(
             self.bot_right_frm, text='Run', state='disabled', 
             command=self.controller.on_run_click
@@ -564,6 +577,9 @@ class View(TkinterDnD.Tk):
         self.type_lbl.pack(side='left')
         self.type_cbo.pack()
         
+        self.years_lbl.pack(side='left')
+        self.years_cbo.pack()
+        
         self.run_btn.pack(anchor='s', side='left', padx=constants.OUT_PAD)
         self.exit_btn.pack(anchor='s', side='right')
         
@@ -675,6 +691,9 @@ class View(TkinterDnD.Tk):
                     self.type_cbo.config(values=values) 
                     
                     self.type_cbo.set(default)
+                    
+                elif option == 'Years':
+                    self.years_cbo.set(default)
                 
                 if option in self.option_frm_one_widgets:
                     if not option_frm_one_pads:
@@ -988,6 +1007,10 @@ class Controller:
     
     
     processes = {
+        'Annualized Growth by Economic Category': {
+            'primary_options': ['Years', 'Open']
+            },
+        
         'Business Detail Totals': {
             'primary_options': [
                 'type', 'Count', 'Order', 'Ascending', 
@@ -1055,7 +1078,8 @@ class Controller:
             'Custom Standard', 'Liaison by Rep', 'Liaison Standard'
             ],
         'Process': process_names,
-        'Totals Type': ['Category', 'Segment']
+        'Totals Type': ['Category', 'Segment'],
+        'Years': [i for i in range(1, 11)],
         }
     
     processes['Business Detail Totals']['secondary_options'] = {
@@ -1086,7 +1110,8 @@ class Controller:
         'PDF Only': 0,
         'Packet Type': 'Client Standard',
         'Process': 'Export Business Detail (QC/QE)',
-        'Totals Type': 'Segment'
+        'Totals Type': 'Segment',
+        'Years': 7
         }
     
     jurisdicitions_query = f'''
@@ -1270,6 +1295,7 @@ class Controller:
         self.view.interval_cbo.config(values=self.options['Interval'])
         self.view.order_cbo.config(values=self.options['Order'])
         self.view.output_cbo.config(values=self.options['Output'])
+        self.view.years_cbo.config(values=self.options['Years'])
     
         self.set_jurisdiction_list()
         
