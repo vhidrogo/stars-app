@@ -1767,6 +1767,10 @@ class Controller:
         return self.view.type_cbo.get()
     
     
+    def get_years_option(self):
+        return self.view.years_cbo.get()
+    
+    
     def get_view(self):
         return self.view
     
