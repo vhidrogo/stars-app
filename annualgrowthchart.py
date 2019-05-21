@@ -17,6 +17,8 @@ OUTPUT_TYPE = 'xlsx'
 
 MIN_YEARS = 2
 
+DATA_NAMES = ['jurisdiction', 'region']
+
 
 class AnnualizedGrowthChart:
     '''
@@ -28,19 +30,18 @@ class AnnualizedGrowthChart:
         self.controller = controller
         self.selections = selections
         
-        self.jurisdiction_query = ''
-        self.region_query = ''
         self.output_path = ''
         
         self.output_saved = False
         
         self.period_headers = []
         
-        self.jurisdiction_data = None
-        self.region_data = None
-        
         self.year_periods = []
         self.year_strings = []
+        
+        self.queries = {name: '' for name in DATA_NAMES}
+        self.args = {name: () for name in DATA_NAMES}
+        self.dfs = {name: None for name in DATA_NAMES}
         
         
     def main(self, jurisdiction):
@@ -51,12 +52,12 @@ class AnnualizedGrowthChart:
             self._set_period_headers()
             self._set_year_strings()
             
-            self._set_jurisdiction_query()
-            self._set_region_query()
-            
-            self._set_jurisdiction_data()
-            self._set_region_data()
-            
+            self._set_queries()
+            self._set_args()
+            self._set_dfs()
+            for name, df in self.dfs.items():
+                print(name)
+                print(df)
             self._set_output_path()
             self._output()
             
@@ -98,10 +99,9 @@ class AnnualizedGrowthChart:
                 )
             for x in period_headers
             ]
-            
-            
-    def _set_jurisdiction_query(self):
-        self.jurisdiction_query = f'''
+        
+    def _set_queries(self):
+        self.queries['jurisdiction'] = f'''
             SELECT c.Name,{self.year_strings[0]},{self.year_strings[-1]}
             
             FROM {constants.CATEGORY_TOTALS_TABLE} t,
@@ -113,9 +113,7 @@ class AnnualizedGrowthChart:
             ORDER BY {constants.CATEGORY_ID_COLUMN_NAME}
             '''
         
-        
-    def _set_region_query(self):
-        self.region_query = f'''
+        self.queries['region'] = f'''
             SELECT c.Name,{self.year_strings[0]},{self.year_strings[-1]}
             
             FROM {constants.CATEGORY_TOTALS_TABLE}{constants.REGION_SUFFIX} t,
@@ -127,33 +125,24 @@ class AnnualizedGrowthChart:
             ORDER BY {constants.CATEGORY_ID_COLUMN_NAME}
             '''
         
-        
-    def _set_jurisdiction_data(self):
-        jurisdiction_data = utilities.execute_sql(
-            sql_code=self.jurisdiction_query,
-            args=(self.jurisdiction.tac, ),
-            db_name=constants.STATEWIDE_DATASETS_DB,
-            fetchall=True,
-            attach_db=constants.STARS_DB
-            )
-        
-        self.jurisdiction_data = pd.DataFrame(
-            jurisdiction_data, columns=['Category'] + self.period_headers
-            )
+    def _set_args(self):
+        self.args['jurisdiction'] = (self.jurisdiction.tac, )
+        self.args['region'] = (self.jurisdiction.region_id, )
         
         
-    def _set_region_data(self):
-        region_data = utilities.execute_sql(
-            sql_code=self.region_query,
-            args=(self.jurisdiction.region_id, ),
-            db_name=constants.STATEWIDE_DATASETS_DB,
-            fetchall=True,
-            attach_db=constants.STARS_DB
-            )
-        
-        self.region_data = pd.DataFrame(
-            region_data, columns=['Category'] + self.period_headers
-            )
+    def _set_dfs(self):
+        for name in DATA_NAMES:
+            data = utilities.execute_sql(
+                sql_code=self.queries[name],
+                args=self.args[name],
+                db_name=constants.STATEWIDE_DATASETS_DB,
+                fetchall=True,
+                attach_db=constants.STARS_DB
+                )
+            
+            self.dfs[name] = pd.DataFrame(
+                data, columns=['Category'] + self.period_headers
+                )
         
         
     def _set_output_path(self):
