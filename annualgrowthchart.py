@@ -10,7 +10,6 @@ import xlsxwriter
 
 import constants
 import utilities
-from numpy.distutils.fcompiler import none
 
 OUTPUT_NAME = 'Annualized Growth by Economic Category'
 OUTPUT_TYPE = 'xlsx'
@@ -23,6 +22,10 @@ MIN_YEARS = 2
 
 DATA_NAMES = ['jurisdiction', 'region']
 
+TITLE_FONT_SIZE = 14
+LEGEND_FONT_SIZE = 13
+DATA_LABEL_FONT_SIZE = 12
+
 
 class AnnualizedGrowthChart:
     '''
@@ -34,7 +37,7 @@ class AnnualizedGrowthChart:
         'cols': {
             'jurisdiction_chart': 0,
             'jurisdiction_data': 0,
-            'last': 15,
+            'print': 15,
             'region_chart': 8,
             'region_data': 3,
             },
@@ -42,6 +45,7 @@ class AnnualizedGrowthChart:
         'rows': {
             'charts': 0,
             'data': 34,
+            'print': 30,
             }
         }
     
@@ -49,14 +53,8 @@ class AnnualizedGrowthChart:
         'height': 620,
         'width': 510
         }
-    
-    #===========================================================================
-    # format_properties = {
-    #     'data_header': {'bold': True, 'bottom': True},
-    #     'percent_changes': {'num_format': '0.0%'},
-    #     }
-    #===========================================================================
-    
+  
+
     def __init__(self, controller, selections):
         self.controller = controller
         self.selections = selections
@@ -83,20 +81,26 @@ class AnnualizedGrowthChart:
         if self.selections.years >= MIN_YEARS:
             self.jurisdiction = jurisdiction
             
+            self.controller.update_progress(
+                0, f'{self.jurisdiction.id}: Creating chart.'
+                )
+            
             self._set_year_periods()
             self._set_period_headers()
             self._set_year_strings()
             
             self._set_queries()
             self._set_args()
-            self._set_dfs()
+            self._set_dataframes()
+            self._set_total_changes()
             self._set_category_changes()
            
-            self._set_total_changes()
-            
             self._set_output_path()
             self._create_output()
-            self._output()
+            
+            self.controller.update_progress(
+                100, f'{self.jurisdiction.id}: Finished.'
+                )
             
             if self.output_saved and self.selections.open_output:
                 utilities.open_file(self.output_path)
@@ -169,7 +173,7 @@ class AnnualizedGrowthChart:
         self.args['region'] = (self.jurisdiction.region_id, )
         
         
-    def _set_dfs(self):
+    def _set_dataframes(self):
         for name in DATA_NAMES:
             data = utilities.execute_sql(
                 sql_code=self.queries[name],
@@ -187,7 +191,7 @@ class AnnualizedGrowthChart:
     def _set_category_changes(self):
         for name in DATA_NAMES:
             self.dfs[name][CATEGORY_CHANGE_COLUMN] = self.dfs[name].apply(
-                lambda row: self._percent_change(row), axis=1
+                lambda row: self._percent_change(row, name), axis=1
                 )
             
             
@@ -198,15 +202,14 @@ class AnnualizedGrowthChart:
             
             total_change = new_total - old_total
             
-            self.total_changes[name] = f'${int(total_change):,}'
+            self.total_changes[name] = total_change
             
 
-    def _percent_change(self, row):
+    def _percent_change(self, row, name):
         return (
             (row[self.period_headers[1]] - row[self.period_headers[0]])
             /
-            row[self.period_headers[0]]
-            if row[self.period_headers[0]] else 0
+            self.total_changes[name]
             )
         
         
@@ -214,7 +217,13 @@ class AnnualizedGrowthChart:
         self.wb = xlsxwriter.Workbook(self.output_path)
         self.ws = self.wb.add_worksheet(SHEET_NAME)
         
+        # hides the printed grid lines
+        self.ws.hide_gridlines()
+        
         self._create_charts()
+        self._set_footer()
+        self._set_page()
+        self._output()
         
         
     def _create_charts(self):
@@ -259,10 +268,21 @@ class AnnualizedGrowthChart:
                     SHEET_NAME, data_row + 1, data_col + 1, 
                     data_row + len(category_names), data_col + 1
                     ],
+                
                 'categories': [
                     SHEET_NAME, data_row + 1, data_col, 
                     data_row + category_count, data_col
                     ],
+                
+                'data_labels': {
+                    'font': {
+                        'bold': True, 'color': 'white', 
+                        'size': DATA_LABEL_FONT_SIZE
+                        }, 
+                    'num_format': '0%', 'value': True
+                    },
+                
+                'points': self._get_point_colors()
                 })
             
             chart.set_title({
@@ -270,8 +290,18 @@ class AnnualizedGrowthChart:
                 'name_font': {
                     'name': 'Calibri',
                     'color': constants.BLUE_THEME_COLOR,
-                    'size': 14
+                    'size': TITLE_FONT_SIZE
                     }
+                })
+            
+            chart.set_plotarea({
+            'border' : {'none' : True},
+            'fill' : {'none' : True}
+            })
+         
+            chart.set_chartarea({
+                'border' : {'none' : True},
+                'fill' : {'none' : True}
                 })
             
             chart.set_size({
@@ -286,6 +316,31 @@ class AnnualizedGrowthChart:
             data_col += 3
             
             
+    def _set_footer(self):
+        '''
+            Sets the left and right footers.
+        '''
+        footer = (
+            f'&L{constants.LEFT_NON_CONFIDENTIAL_FOOTER}'
+            f'&R{constants.RIGHT_FOOTER}'
+            )
+        
+        self.ws.set_footer(footer)
+            
+            
+    def _set_page(self):
+        self.ws.set_landscape()
+        
+        self.ws.set_margins(left=0.5, right=0.5, top=0.5, bottom=0.5)
+        
+        last_row = self.sheet_properties['rows']['print']
+        last_col = self.sheet_properties['cols']['print']
+        
+        self.ws.print_area(0, 0, last_row, last_col)
+        
+        self.ws.fit_to_pages(width=1, height=1)
+            
+            
     def _set_chart_legend(self, data_name, chart, series_count):
         mid_series = series_count // 2
         
@@ -298,27 +353,45 @@ class AnnualizedGrowthChart:
         
         chart.set_legend({
             'position': 'bottom',
+            'font': {
+                'size': LEGEND_FONT_SIZE, 'bold': True, 
+                'color': constants.BLUE_THEME_COLOR
+                },
             'delete_series': delete_series
             })
+        
+        
+    def _get_point_colors(self):
+        return [
+            {'fill': {'color': color}} for color in constants.THEME_COLORS.values()
+            ]
             
             
     def _get_chart_title(self, data_name):
         area_name = (
             self.jurisdiction.name if data_name == 'jurisdiction'
-            else self.jurisdiction.region_name
+            else f'{self.jurisdiction.region_name} Region'
             )
         
+        if self.total_changes[data_name] < 0:
+            direction = 'Decrease'
+            change = 'Decline'
+        else:
+            direction = 'Increase'
+            change = 'Growth' 
+        
         return (
-            f'{area_name.title()} Total Sales Tax Increase '
-            f'{self.total_changes[data_name]} '
-            f'Growth Source {self.period_headers[0].replace("_", " ")} to '
-            f'{self.period_headers[1].replace("_", " ")}'
+            f'{area_name.title()} - Total Sales Tax {direction} '
+            f'${int(self.total_changes[data_name]):,} '
+            f'{self.period_headers[0].replace("_", " ")} to '
+            f'{self.period_headers[1].replace("_", " ")} {change} Sources:'
             )
         
         
     def _set_output_path(self):
         name = (
-            f'{self.jurisdiction.id} {self.selections.period} {OUTPUT_NAME}'
+            f'{self.jurisdiction.id} {self.selections.period} {OUTPUT_NAME} '
+            f'{self.selections.type_option} Chart'
             )
         
         self.output_path = f'{self.jurisdiction.folder}{name}.{OUTPUT_TYPE}'
