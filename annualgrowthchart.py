@@ -42,6 +42,7 @@ class AnnualizedGrowthChart:
         self.queries = {name: '' for name in DATA_NAMES}
         self.args = {name: () for name in DATA_NAMES}
         self.dfs = {name: None for name in DATA_NAMES}
+        self.total_changes = {name: 0 for name in DATA_NAMES}
         
         
     def main(self, jurisdiction):
@@ -55,10 +56,14 @@ class AnnualizedGrowthChart:
             self._set_queries()
             self._set_args()
             self._set_dfs()
+            self._set_category_changes()
             for name, df in self.dfs.items():
                 print(name)
                 print(df)
+            self._set_total_changes()
+            print(self.total_changes)
             self._set_output_path()
+            self._create_workbook()
             self._output()
             
             if self.output_saved and self.selections.open_output:
@@ -92,6 +97,7 @@ class AnnualizedGrowthChart:
         
     def _set_period_headers(self):
         period_headers = [x[-1] for x in self.year_periods]
+        
         self.period_headers = [
             x.replace(
                 constants.QUARTER_COLUMN_PREFIX, 
@@ -99,6 +105,7 @@ class AnnualizedGrowthChart:
                 )
             for x in period_headers
             ]
+        
         
     def _set_queries(self):
         self.queries['jurisdiction'] = f'''
@@ -143,6 +150,37 @@ class AnnualizedGrowthChart:
             self.dfs[name] = pd.DataFrame(
                 data, columns=['Category'] + self.period_headers
                 )
+            
+            
+    def _set_category_changes(self):
+        for name in DATA_NAMES:
+            self.dfs[name]['cat_change'] = self.dfs[name].apply(
+                lambda row: self._percent_change(row), axis=1
+                )
+            
+            
+    def _set_total_changes(self):
+        for name in DATA_NAMES:
+            old_total = sum(self.dfs[name][self.period_headers[0]])
+            new_total = sum(self.dfs[name][self.period_headers[-1]])
+            
+            total_change = new_total - old_total
+            
+            self.total_changes[name] = f'${int(total_change):,}'
+            
+
+    def _percent_change(self, row):
+        return (
+            (row[self.period_headers[1]] - row[self.period_headers[0]])
+            /
+            row[self.period_headers[0]]
+            if row[self.period_headers[0]] else 0
+            )
+        
+        
+    def _create_workbook(self):
+        self.wb = xlsxwriter.Workbook(self.output_path)
+        self.ws = self.wb.add_worksheet('Jurisdiction & Region Charts')
         
         
     def _set_output_path(self):
@@ -154,4 +192,13 @@ class AnnualizedGrowthChart:
         
         
     def _output(self):
-        pass
+        try:
+            self.wb.close()
+            self.output_saved = True
+            
+        except PermissionError:
+            msg.showerror(
+                self.selections.title, 
+                f'Failed to save to:\n\n{self.output_path}\n\n'
+                'A file at that path is currently open.'
+                )
