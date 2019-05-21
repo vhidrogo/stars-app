@@ -9,7 +9,7 @@ import re
 import sys
 
 
-APP_VERSION = '1.6.7'
+APP_VERSION = '1.6.8'
 
 APP_NAME = f'StarsApp{APP_VERSION}'
 
