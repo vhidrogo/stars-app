@@ -118,6 +118,7 @@ SEGMENT_TOTALS_TABLE = 'segment_totals'
 # common column names
 BUSINESS_COLUMN_NAME = 'BUSINESS'
 BUSINESS_CODE_ID_COLUMN_NAME = 'business_code_id'
+CATEGORY_COLUMN_NAME = 'category'
 CATEGORY_ID_COLUMN_NAME = 'category_id'
 COUNTY_ID_COLUMN_NAME = 'CountyId'
 ESTIMATE_COLUMN_NAME = 'EST'

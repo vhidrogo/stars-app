@@ -642,7 +642,10 @@ class View(TkinterDnD.Tk):
             
             for option in options['primary_options']:
                 if option == 'type':
-                    if process_name == 'Business Detail Totals':
+                    if process_name == 'Annualized Growth by Economic Category':
+                        default_name = 'Growth Chart Type'
+                        
+                    elif process_name == 'Business Detail Totals':
                         default_name = 'Totals Type'
                         
                     elif process_name == 'Compile Packet':
@@ -1008,7 +1011,7 @@ class Controller:
     
     processes = {
         'Annualized Growth by Economic Category': {
-            'primary_options': ['Years', 'Open']
+            'primary_options': ['Years', 'type', 'Open']
             },
         
         'Business Detail Totals': {
@@ -1065,6 +1068,7 @@ class Controller:
         'Count': ['All'] + [i for i in range(1, constants.MAX_PERIOD_COUNT + 1)],
         'DB Mode': constants.DB_MODES,
         'Dictionary Type': ['Name', 'Permit'],
+        'Growth Chart Type': ['Doughnut', 'Pie'],
         'Estimates': chk_options,
         'Exclude Files': chk_options,
         'Geos': chk_options,
@@ -1090,6 +1094,10 @@ class Controller:
         'type': options['Packet Type'] 
     }
     
+    processes['Annualized Growth by Economic Category']['secondary_options'] = {
+        'type': options['Growth Chart Type']
+        }
+    
     processes['Run Dictionary']['secondary_options'] = {
         'type': options['Dictionary Type']
         }
@@ -1100,6 +1108,7 @@ class Controller:
         'Count': 'All',
         'DB Mode': 1,
         'Dictionary Type': 'Name',
+        'Growth Chart Type': 'Doughnut',
         'Estimates': 1,
         'Exclude Files': 1,
         'Geos': 0,

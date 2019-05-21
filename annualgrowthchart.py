@@ -15,6 +15,10 @@ from numpy.distutils.fcompiler import none
 OUTPUT_NAME = 'Annualized Growth by Economic Category'
 OUTPUT_TYPE = 'xlsx'
 
+CATEGORY_CHANGE_COLUMN = 'cat_change'
+
+SHEET_NAME = 'Jurisdiction & Region Charts'
+
 MIN_YEARS = 2
 
 DATA_NAMES = ['jurisdiction', 'region']
@@ -26,6 +30,33 @@ class AnnualizedGrowthChart:
     '''
     
     
+    sheet_properties = {
+        'cols': {
+            'jurisdiction_chart': 0,
+            'jurisdiction_data': 0,
+            'last': 15,
+            'region_chart': 8,
+            'region_data': 3,
+            },
+        
+        'rows': {
+            'charts': 0,
+            'data': 34,
+            }
+        }
+    
+    chart_properties = {
+        'height': 620,
+        'width': 510
+        }
+    
+    #===========================================================================
+    # format_properties = {
+    #     'data_header': {'bold': True, 'bottom': True},
+    #     'percent_changes': {'num_format': '0.0%'},
+    #     }
+    #===========================================================================
+    
     def __init__(self, controller, selections):
         self.controller = controller
         self.selections = selections
@@ -33,6 +64,9 @@ class AnnualizedGrowthChart:
         self.output_path = ''
         
         self.output_saved = False
+        
+        self.wb = None
+        self.ws = None
         
         self.period_headers = []
         
@@ -57,13 +91,11 @@ class AnnualizedGrowthChart:
             self._set_args()
             self._set_dfs()
             self._set_category_changes()
-            for name, df in self.dfs.items():
-                print(name)
-                print(df)
+           
             self._set_total_changes()
-            print(self.total_changes)
+            
             self._set_output_path()
-            self._create_workbook()
+            self._create_output()
             self._output()
             
             if self.output_saved and self.selections.open_output:
@@ -148,13 +180,13 @@ class AnnualizedGrowthChart:
                 )
             
             self.dfs[name] = pd.DataFrame(
-                data, columns=['Category'] + self.period_headers
+                data, columns=[constants.CATEGORY_COLUMN_NAME] + self.period_headers
                 )
             
             
     def _set_category_changes(self):
         for name in DATA_NAMES:
-            self.dfs[name]['cat_change'] = self.dfs[name].apply(
+            self.dfs[name][CATEGORY_CHANGE_COLUMN] = self.dfs[name].apply(
                 lambda row: self._percent_change(row), axis=1
                 )
             
@@ -178,9 +210,110 @@ class AnnualizedGrowthChart:
             )
         
         
-    def _create_workbook(self):
+    def _create_output(self):
         self.wb = xlsxwriter.Workbook(self.output_path)
-        self.ws = self.wb.add_worksheet('Jurisdiction & Region Charts')
+        self.ws = self.wb.add_worksheet(SHEET_NAME)
+        
+        self._create_charts()
+        
+        
+    def _create_charts(self):
+        chart_row = self.sheet_properties['rows']['charts']
+        data_row = self.sheet_properties['rows']['data']
+        
+        cell_bold_format = self.wb.add_format({
+            'bold': True, 'bottom': True
+            })
+        
+        cell_percent_format = self.wb.add_format({'num_format': '0.0%'})
+        
+        for name in DATA_NAMES:
+            chart_col = self.sheet_properties['cols'][name + '_chart']
+            data_col = self.sheet_properties['cols'][name + '_data']
+            
+            category_names = [
+                x.title() 
+                for x in self.dfs[name][constants.CATEGORY_COLUMN_NAME]
+                ]
+            
+            category_count = len(category_names)
+            
+            # writes the data name
+            self.ws.write(data_row, data_col, name + ' data', cell_bold_format)
+            
+            # writes the category names
+            self.ws.write_column(data_row + 1, data_col, category_names)
+            
+            # writes the category changes
+            self.ws.write_column(
+                data_row + 1, data_col + 1, 
+                self.dfs[name][CATEGORY_CHANGE_COLUMN], cell_percent_format
+                )
+            
+            chart = self.wb.add_chart({
+                'type': self.selections.type_option.lower()
+                })
+            
+            chart.add_series({
+                'values': [
+                    SHEET_NAME, data_row + 1, data_col + 1, 
+                    data_row + len(category_names), data_col + 1
+                    ],
+                'categories': [
+                    SHEET_NAME, data_row + 1, data_col, 
+                    data_row + category_count, data_col
+                    ],
+                })
+            
+            chart.set_title({
+                'name': self._get_chart_title(name),
+                'name_font': {
+                    'name': 'Calibri',
+                    'color': constants.BLUE_THEME_COLOR,
+                    'size': 14
+                    }
+                })
+            
+            chart.set_size({
+                'width': self.chart_properties['width'], 
+                'height': self.chart_properties['height']
+                })
+            
+            self._set_chart_legend(name, chart, category_count)
+            
+            self.ws.insert_chart(chart_row, chart_col, chart)
+        
+            data_col += 3
+            
+            
+    def _set_chart_legend(self, data_name, chart, series_count):
+        mid_series = series_count // 2
+        
+        # deletes the last three categories from the jurisdiction chart
+        # legend and the first three from the region chart legend
+        delete_series = (
+            [i for i in range(mid_series, series_count)] if data_name == 'jurisdiction'
+            else [i for i in range(mid_series)]
+            )
+        
+        chart.set_legend({
+            'position': 'bottom',
+            'delete_series': delete_series
+            })
+            
+            
+    def _get_chart_title(self, data_name):
+        area_name = (
+            self.jurisdiction.name if data_name == 'jurisdiction'
+            else self.jurisdiction.region_name
+            )
+        
+        return (
+            f'{area_name.title()} Total Sales Tax Increase '
+            f'{self.total_changes[data_name]} '
+            f'Growth Source {self.period_headers[0].replace("_", " ")} to '
+            f'{self.period_headers[1].replace("_", " ")}'
+            )
         
         
     def _set_output_path(self):
