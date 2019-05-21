@@ -43,7 +43,7 @@ class Selections:
         self.pdf_only = self.main.get_pdf_only_state()
         self.process_name = self.main.get_process_name()
         self.type_option = self.main.get_type_option()
-        self.years = self.main.get_years_option()
+        self.years = int(self.main.get_years_option())
         
         self.title = f'{constants.APP_NAME} - {self.process_name}'
         
