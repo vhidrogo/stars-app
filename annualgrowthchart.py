@@ -135,10 +135,7 @@ class AnnualizedGrowthChart:
         period_headers = [x[-1] for x in self.year_periods]
         
         self.period_headers = [
-            x.replace(
-                constants.QUARTER_COLUMN_PREFIX, 
-                constants.YEAR_COLUMN_PREFIX.upper()
-                )
+            x.replace(constants.QUARTER_COLUMN_PREFIX, '')
             for x in period_headers
             ]
         
@@ -369,7 +366,8 @@ class AnnualizedGrowthChart:
             
     def _get_chart_title(self, data_name):
         area_name = (
-            self.jurisdiction.name if data_name == 'jurisdiction'
+            utilities.fetch_jurisdiction_header(self.jurisdiction.name)
+            if 'jurisdiction' in data_name 
             else f'{self.jurisdiction.region_name} Region'
             )
         
@@ -381,10 +379,10 @@ class AnnualizedGrowthChart:
             change = 'Growth' 
         
         return (
-            f'{area_name.title()} - Total Sales Tax {direction} '
-            f'${int(self.total_changes[data_name]):,} '
-            f'{self.period_headers[0].replace("_", " ")} to '
-            f'{self.period_headers[1].replace("_", " ")} {change} Sources:'
+            f'{area_name.title()} - {self.period_headers[0]} to '
+            f'{self.period_headers[1]}\nTotal Annualized Sales Tax '
+            f'{direction}: ${int(self.total_changes[data_name]):,} '
+            f'\n{change} Sources:'
             )
         
         

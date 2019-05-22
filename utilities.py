@@ -471,4 +471,32 @@ def get_jurisdiction_table_name(jurisdiction_id):
         if jurisdiction_id.isdigit() else jurisdiction_id
         )
     
+def fetch_jurisdiction_header(jurisdiction_name):
+    query = f'''
+        SELECT s.name
+        
+        FROM {constants.JURISDICTIONS_TABLE} j,
+            {constants.JURISDICTIONS_SUB_TYPES_TABLE} s
+            
+        WHERE j.Name=?
+            AND j.JurisdictionSubTypeId=s.Id
+        '''
     
+    results = execute_sql(
+        sql_code=query, 
+        args=(jurisdiction_name, ), 
+        db_name=constants.STARS_DB
+        )
+    
+    sub_type = results[0] if results else ''
+    
+    if sub_type == 'City' and 'City' not in jurisdiction_name:
+        header = f'City of {jurisdiction_name}'
+    
+    elif sub_type == 'Town':
+        header = f'Town of {jurisdiction_name}'
+    
+    else:
+        header = jurisdiction_name
+    
+    return header
