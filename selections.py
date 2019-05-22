@@ -43,7 +43,8 @@ class Selections:
         self.pdf_only = self.main.get_pdf_only_state()
         self.process_name = self.main.get_process_name()
         self.type_option = self.main.get_type_option()
-        self.years = int(self.main.get_years_option())
+        
+        self._set_years()
         
         self.title = f'{constants.APP_NAME} - {self.process_name}'
         
@@ -52,6 +53,11 @@ class Selections:
         self.jurisdiction_count = len(self.jurisdiction_list)
         
         self._set_jurisdiction_folders()
+        
+        
+    def _set_years(self):
+        years = self.main.get_years_option()
+        self.years = int(years) if years else 0
         
         
     def _set_jurisdiction_list(self):
