@@ -4,10 +4,17 @@ Created on May 23, 2019
 @author: vahidrogo
 '''
 
+from tkinter import messagebox as msg
 import xlsxwriter
 
 import constants
 import utilities
+
+
+OUTPUT_NAME = 'Annualized Per Capita by Economic Category Chart'
+OUTPUT_TYPE = 'xlsx'
+
+SHEET_NAME = 'Per Capita Chart'
 
 
 class AnnualizedPerCapitaChart:
@@ -23,7 +30,12 @@ class AnnualizedPerCapitaChart:
         self.output_path = ''
         self.sales_tax_query = ''
         
+        self.output_saved = False
+        
         self.jurisdiction = None
+        
+        self.wb = None
+        self.ws = None
         
         self.category_totals = ()
         
@@ -44,16 +56,19 @@ class AnnualizedPerCapitaChart:
         self.jurisdiction = jurisdiction
         
         self._set_category_totals()
-        print(self.category_totals)
+        
         if self.category_totals:
             self._set_population()
             
             if self.population:
                 self._set_totals()
-                print(self.population)
-                print()
                 
-                print(self.totals)
+                self._set_output_path()
+                self._create_output()
+                
+                if self.output_saved and self.selections.open_output:
+                    utilities.open_file(self.output_path)
+
         
     def _set_periods(self):
         self.periods = utilities.get_period_headers(
@@ -138,6 +153,34 @@ class AnnualizedPerCapitaChart:
             
     def _set_totals(self):
         self.totals = [sum(x) for x in list(zip(*self.category_totals))[1:]]
+        
+        
+    def _set_output_path(self):
+        name = (
+            f'{self.selections.period} {self.jurisdiction.id} {OUTPUT_NAME}'
+            )
+        
+        self.output_path = f'{self.jurisdiction.folder}{name}.{OUTPUT_TYPE}'
+        
+        
+    def _create_output(self):
+        self.wb = xlsxwriter.Workbook(self.output_path)
+        self.ws = self.wb.add_worksheet(SHEET_NAME)
+        
+        self._output()
+        
+        
+    def _output(self):
+        try:
+            self.wb.close()
+            self.output_saved = True
+            
+        except PermissionError:
+            msg.showerror(
+                self.selections.title,
+                f'Failed to save to:\n\n{self.output_path}\n\n'
+                'A file at that path is currently open.'
+                )
         
          
     
