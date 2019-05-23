@@ -21,6 +21,7 @@ import traceback
 
 from adjustments import BusinessLevelAdjustments
 from annualgrowthchart import AnnualizedGrowthChart
+from annualpercapitachart import AnnualizedPerCapitaChart
 from businessdetailtotals import BusinessDetailTotals
 import businesslookup
 from cashanomalies import CashAnomalies
@@ -84,7 +85,13 @@ class Model(threading.Thread):
                 self.counter = i
                 
                 try:
-                    if process == 'Annualized Growth by Economic Category':
+                    if process == 'Annualized Per Capita by Economic Category':
+                        annual_percapita_chart = AnnualizedPerCapitaChart(
+                            self, self.controller
+                            )
+                        annual_percapita_chart.main(jurisdiction)
+                    
+                    elif process == 'Annualized Growth by Economic Category':
                         annual_growth_chart = AnnualizedGrowthChart(
                             self, self.selections
                             )
@@ -1010,6 +1017,10 @@ class Controller:
     
     
     processes = {
+        'Annualized Per Capita by Economic Category': {
+            'primary_options': ['Years', 'Open']
+            },
+        
         'Annualized Growth by Economic Category': {
             'primary_options': ['Years', 'type', 'Open']
             },
