@@ -1017,12 +1017,12 @@ class Controller:
     
     
     processes = {
-        'Annualized Per Capita by Economic Category': {
-            'primary_options': ['Years', 'Open']
-            },
-        
         'Annualized Growth by Economic Category': {
             'primary_options': ['Years', 'type', 'Open']
+            },
+        
+        'Annualized Per Capita by Economic Category': {
+            'primary_options': ['Years', 'Open']
             },
         
         'Business Detail Totals': {
