@@ -87,7 +87,7 @@ class Model(threading.Thread):
                 try:
                     if process == 'Annualized Per Capita by Economic Category':
                         annual_percapita_chart = AnnualizedPerCapitaChart(
-                            self, self.controller
+                            self, self.selections
                             )
                         annual_percapita_chart.main(jurisdiction)
                     
