@@ -16,7 +16,14 @@ OUTPUT_TYPE = 'xlsx'
 
 SHEET_NAME = 'Per Capita Chart'
 
+TITLE_FONT_SIZE = 14
+
+AXIS_FONT_SIZE = 12
+
 DATA_LABEL_FONT_SIZE = 12
+LEGEND_FONT_SIZE = 13
+
+X_AXIS_ROTATION = 45
 
 
 class AnnualizedPerCapitaChart:
@@ -209,7 +216,8 @@ class AnnualizedPerCapitaChart:
         self._write_per_capita_data()
         self._write_x_labels()
         self._create_chart()
-        
+        self._set_footer()
+        self._set_page()
         self._output()
         
         
@@ -218,7 +226,7 @@ class AnnualizedPerCapitaChart:
         col = self.sheet_properties['cols']['data']
         
         header_format = self.wb.add_format({'bold': True, 'bottom': True})
-        amount_format = self.wb.add_format({'num_format': '#,##0'})
+        amount_format = self.wb.add_format({'num_format': '$#,##0'})
         
         # writes the category name header
         self.ws.write(row, col, 'Category', header_format)
@@ -235,7 +243,7 @@ class AnnualizedPerCapitaChart:
         col = self.sheet_properties['cols']['data'] + 1
         
         labels = [
-            f'{period} ${int(total // self.population[period]):,}' 
+            f'{period}: ${int(total // self.population[period]):,}' 
             for period, total in zip(self.interval_periods, self.totals)
             ]
         
@@ -251,7 +259,13 @@ class AnnualizedPerCapitaChart:
         
         chart = self.wb.add_chart({'type': 'column', 'subtype': 'stacked'})
         
-        for _ in range(self.category_count):
+        for x in self.category_per_capita:
+            category = x[0]
+            
+            color = constants.THEME_COLORS[
+                category.lower().replace(' ', '_')
+                ]
+            
             chart.add_series({
                 'values': [
                         SHEET_NAME, 
@@ -263,7 +277,17 @@ class AnnualizedPerCapitaChart:
                     x_label_row, first_data_col + 1, x_label_row, last_data_col
                     ],
                 
-                'name': [SHEET_NAME, data_row, first_data_col]
+                'name': [SHEET_NAME, data_row, first_data_col], 
+                
+                'data_labels': {
+                    'value': True,
+                    'font': {
+                        'color': 'white', 
+                        'size': DATA_LABEL_FONT_SIZE
+                        }
+                    },
+                
+                'fill': {'color': color}
                 })
             
             data_row += 1
@@ -273,11 +297,83 @@ class AnnualizedPerCapitaChart:
             'height': self.chart_properties['height']
             })
         
+        chart.set_title({
+            'name': self._get_chart_title(),
+            'name_font': {
+                'name': 'Calibri',
+                'color': constants.BLUE_THEME_COLOR,
+                'size': TITLE_FONT_SIZE
+                }
+            })
+        
+        chart.set_y_axis({
+            'num_font': {
+                'color': constants.BLUE_THEME_COLOR,
+                'size': AXIS_FONT_SIZE
+                }
+            })
+        
+        chart.set_x_axis({
+            'num_font': {
+                'color': constants.BLUE_THEME_COLOR,
+                'rotation': X_AXIS_ROTATION,
+                'size': AXIS_FONT_SIZE
+                }
+            })
+        
+        chart.set_legend({
+            'position': 'bottom',
+            'font': {
+                'size': LEGEND_FONT_SIZE, 'bold': True, 
+                'color': constants.BLUE_THEME_COLOR
+                }
+        })
+        
+        chart.set_plotarea({
+        'border' : {'none' : True},
+        'fill' : {'none' : True}
+        })
+     
+        chart.set_chartarea({
+            'border' : {'none' : True},
+            'fill' : {'none' : True}
+            })
+                
         self.ws.insert_chart(
             self.sheet_properties['rows']['chart'],
             self.sheet_properties['cols']['chart'],
             chart
             )
+        
+        
+    def _get_chart_title(self):
+        juri_header = utilities.fetch_jurisdiction_header(self.jurisdiction.name)
+        return f'{juri_header.title()}\nAnnualized Sales Tax Per Capita'
+        
+        
+    def _set_footer(self):
+        '''
+            Sets the left and right footers.
+        '''
+        footer = (
+            f'&L{constants.LEFT_NON_CONFIDENTIAL_FOOTER}'
+            f'&R{constants.RIGHT_FOOTER}'
+            )
+        
+        self.ws.set_footer(footer)
+            
+            
+    def _set_page(self):
+        self.ws.set_landscape()
+        
+        self.ws.set_margins(left=0.5, right=0.5, top=0.5, bottom=0.5)
+        
+        last_row = self.sheet_properties['rows']['print']
+        last_col = self.sheet_properties['cols']['print']
+        
+        self.ws.print_area(0, 0, last_row, last_col)
+        
+        self.ws.fit_to_pages(width=1, height=1)
         
         
     def _output(self):
