@@ -16,11 +16,33 @@ OUTPUT_TYPE = 'xlsx'
 
 SHEET_NAME = 'Per Capita Chart'
 
+DATA_LABEL_FONT_SIZE = 12
+
 
 class AnnualizedPerCapitaChart:
     '''
         Creates the "Annualized Per Capita by Economic Category" Excel chart.
     '''
+    
+    
+    sheet_properties = {
+        'cols': {
+            'chart': 0,
+            'data': 0,
+            'print': 15,
+            },
+        
+        'rows': {
+            'chart': 0,
+            'data': 34,
+            'print': 30,
+            }
+        }
+    
+    chart_properties = {
+        'height': 620,
+        'width': 1020
+        }
     
     
     def __init__(self, controller, selections):
@@ -29,6 +51,8 @@ class AnnualizedPerCapitaChart:
         
         self.output_path = ''
         self.sales_tax_query = ''
+        
+        self.category_count = 0
         
         self.output_saved = False
         
@@ -39,6 +63,7 @@ class AnnualizedPerCapitaChart:
         
         self.category_totals = ()
         
+        self.category_per_capita = []
         self.totals = []
         
         self.population = {}
@@ -58,11 +83,14 @@ class AnnualizedPerCapitaChart:
         self._set_category_totals()
         
         if self.category_totals:
+            self.category_count = len(self.category_totals)
+            
             self._set_population()
             
             if self.population:
                 self._set_totals()
-                
+                self._set_category_per_capita()
+               
                 self._set_output_path()
                 self._create_output()
                 
@@ -155,6 +183,17 @@ class AnnualizedPerCapitaChart:
         self.totals = [sum(x) for x in list(zip(*self.category_totals))[1:]]
         
         
+    def _set_category_per_capita(self):
+        for x in self.category_totals:
+            category_data = [x[0]]
+            totals = x[1:]
+            
+            for total, population in zip(totals, self.population.values()):
+                category_data.append(int(total // population))
+                
+            self.category_per_capita.append(category_data)
+        
+        
     def _set_output_path(self):
         name = (
             f'{self.selections.period} {self.jurisdiction.id} {OUTPUT_NAME}'
@@ -167,7 +206,78 @@ class AnnualizedPerCapitaChart:
         self.wb = xlsxwriter.Workbook(self.output_path)
         self.ws = self.wb.add_worksheet(SHEET_NAME)
         
+        self._write_per_capita_data()
+        self._write_x_labels()
+        self._create_chart()
+        
         self._output()
+        
+        
+    def _write_per_capita_data(self):
+        row = self.sheet_properties['rows']['data']
+        col = self.sheet_properties['cols']['data']
+        
+        header_format = self.wb.add_format({'bold': True, 'bottom': True})
+        amount_format = self.wb.add_format({'num_format': '#,##0'})
+        
+        # writes the category name header
+        self.ws.write(row, col, 'Category', header_format)
+        row += 1
+        
+        # writes the per capita data
+        for x in self.category_per_capita:
+            self.ws.write_row(row, col, x, amount_format)
+            row += 1
+            
+            
+    def _write_x_labels(self):
+        row = self.sheet_properties['rows']['data']
+        col = self.sheet_properties['cols']['data'] + 1
+        
+        labels = [
+            f'{period} ${int(total // self.population[period]):,}' 
+            for period, total in zip(self.interval_periods, self.totals)
+            ]
+        
+        self.ws.write_row(row, col, labels)
+        
+        
+    def _create_chart(self):
+        x_label_row = self.sheet_properties['rows']['data']
+        data_row = x_label_row + 1
+        
+        first_data_col = self.sheet_properties['cols']['data']
+        last_data_col = first_data_col + self.selections.years
+        
+        chart = self.wb.add_chart({'type': 'column', 'subtype': 'stacked'})
+        
+        for _ in range(self.category_count):
+            chart.add_series({
+                'values': [
+                        SHEET_NAME, 
+                        data_row, first_data_col + 1, data_row, last_data_col
+                        ],
+                
+                'categories': [
+                    SHEET_NAME, 
+                    x_label_row, first_data_col + 1, x_label_row, last_data_col
+                    ],
+                
+                'name': [SHEET_NAME, data_row, first_data_col]
+                })
+            
+            data_row += 1
+        
+        chart.set_size({
+            'width': self.chart_properties['width'],
+            'height': self.chart_properties['height']
+            })
+        
+        self.ws.insert_chart(
+            self.sheet_properties['rows']['chart'],
+            self.sheet_properties['cols']['chart'],
+            chart
+            )
         
         
     def _output(self):
