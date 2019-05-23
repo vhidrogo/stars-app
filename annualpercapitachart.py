@@ -42,9 +42,9 @@ class AnnualizedPerCapitaChart:
         
     def main(self, jurisdiction):
         self.jurisdiction = jurisdiction
-        print(self.sales_tax_query)
-        self._set_category_totals()
         
+        self._set_category_totals()
+        print(self.category_totals)
         if self.category_totals:
             self._set_population()
             
@@ -52,8 +52,8 @@ class AnnualizedPerCapitaChart:
                 self._set_totals()
                 print(self.population)
                 print()
-                print(self.category_totals)
-        
+                
+                print(self.totals)
         
     def _set_periods(self):
         self.periods = utilities.get_period_headers(
@@ -134,6 +134,10 @@ class AnnualizedPerCapitaChart:
             self.population = {
                 period: population for period, population in query_results
                 }
+            
+            
+    def _set_totals(self):
+        self.totals = [sum(x) for x in list(zip(*self.category_totals))[1:]]
         
          
     
