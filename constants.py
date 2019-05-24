@@ -9,7 +9,7 @@ import re
 import sys
 
 
-APP_VERSION = '1.6.8'
+APP_VERSION = '1.6.9'
 
 APP_NAME = f'StarsApp{APP_VERSION}'
 
@@ -334,11 +334,9 @@ RIGHT_FOOTER = 'MuniServices / Avenu Insights && Analytics'
 # if the application is bundled as an executable
 if getattr(sys, 'frozen', False):
     APP_PATH = Path(sys._MEIPASS)
+    
 else:
     APP_PATH = Path(__file__).resolve().parent
-
-# removes "src" folder from path
-APP_PATH = Path(str(APP_PATH).rsplit('\\', 1)[0])
 
 FILES_PATH = APP_PATH.joinpath('files')  
 
