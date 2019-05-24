@@ -8,10 +8,12 @@ To build folder with .exe:
 
     Initial build command (if main.spec does not exist yet):
         pyinstaller -w main.py
-    C:\\Users\\vahidrogo\\Programming\\python_workspace\\stars_app\\files
+    
     Add these lines to main.spec after "a.binaries," in "coll":
-        Tree('C:\\Users\\vahidrogo\\Programming\\python_workspace\\stars_app\\files', prefix='files\\'),
-        Tree('C:\\Users\\vahidrogo\\Programming\\python_workspace\\stars_app\\files\\tkdnd2.8', prefix='tkdnd2.8\\'),
+        Note: Update path if files have been moved
+    
+        Tree('N:\\python\\starsapp\\files', prefix='files\\'),
+        Tree('N:\\python\\starsapp\\files\\tkdnd2.8', prefix='tkdnd2.8\\'),
         
     Re-build with command:
         pyinstaller -w main.spec
