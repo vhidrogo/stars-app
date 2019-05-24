@@ -9,8 +9,11 @@ import xlsxwriter
 
 import constants
 import utilities
-
-
+'''
+    TODO 
+    
+    finish countywide
+'''
 OUTPUT_NAME = 'Annualized Per Capita by Economic Category Chart'
 OUTPUT_TYPE = 'xlsx'
 
@@ -61,6 +64,8 @@ class AnnualizedPerCapitaChart:
         
         self.category_count = 0
         
+        self.is_county_wide = False
+        
         self.output_saved = False
         
         self.jurisdiction = None
@@ -80,15 +85,21 @@ class AnnualizedPerCapitaChart:
         self._set_periods()
         self._set_interval_periods()
         
-        self._set_sales_tax_query()
-        self._set_population_query()
-        
-        
+
     def main(self, jurisdiction):
         self.jurisdiction = jurisdiction
         
-        self._set_category_totals()
+        self.controller.update_progress(
+            0, f'{self.jurisdiction.id}: Fetching category totals.'
+            )
         
+        self.is_county_wide = 'Countywide' in self.jurisdiction.name
+        
+        self._set_sales_tax_query()
+        self._set_population_query()
+        
+        self._set_category_totals()
+    
         if self.category_totals:
             self.category_count = len(self.category_totals)
             
@@ -100,6 +111,10 @@ class AnnualizedPerCapitaChart:
                
                 self._set_output_path()
                 self._create_output()
+                
+                self.controller.update_progress(
+                    100, f'{self.jurisdiction.id}: Finished.'
+                    )
                 
                 if self.output_saved and self.selections.open_output:
                     utilities.open_file(self.output_path)
@@ -122,17 +137,34 @@ class AnnualizedPerCapitaChart:
         
         
     def _set_sales_tax_query(self):
-        self.sales_tax_query = f'''
-            SELECT c.Name,{",".join(self._get_sum_year_strings())}
-            
-            FROM {constants.CATEGORY_TOTALS_TABLE} t,
-                {constants.CATEGORIES_TABLE} c
+        if self.is_county_wide:
+            self.sales_tax_query = f'''
+                SELECT c.Name,{",".join(self._get_sum_year_strings())}
                 
-            WHERE t.{constants.TAC_COLUMN_NAME} = ?
-                AND t.{constants.CATEGORY_ID_COLUMN_NAME} = c.Id
+                FROM {constants.CATEGORY_TOTALS_TABLE} t,
+                    {constants.CATEGORIES_TABLE} c,
+                    {constants.JURISDICTIONS_TABLE} j
+                    
+                WHERE t.{constants.CATEGORY_ID_COLUMN_NAME}=c.Id
+                    AND t.{constants.TAC_COLUMN_NAME} 
+                        = j.{constants.TAC_COLUMN_NAME}
+                    AND j.{constants.COUNTY_ID_COLUMN_NAME} = ?
+                
+                GROUP BY {constants.CATEGORY_ID_COLUMN_NAME}
+                '''
             
-            GROUP BY {constants.CATEGORY_ID_COLUMN_NAME}
-            '''
+        else:
+            self.sales_tax_query = f'''
+                SELECT c.Name,{",".join(self._get_sum_year_strings())}
+                
+                FROM {constants.CATEGORY_TOTALS_TABLE} t,
+                    {constants.CATEGORIES_TABLE} c
+                    
+                WHERE t.{constants.TAC_COLUMN_NAME} = ?
+                    AND t.{constants.CATEGORY_ID_COLUMN_NAME} = c.Id
+                
+                GROUP BY {constants.CATEGORY_ID_COLUMN_NAME}
+                '''
             
     def _get_sum_year_strings(self):
         '''
@@ -143,29 +175,59 @@ class AnnualizedPerCapitaChart:
         
         for period in self.periods[:-3:4]:
             i = self.periods.index(period)
-            sum_year_strings.append(
-                f'{period}+{self.periods[i+1]}+{self.periods[i+2]}+{self.periods[i+3]}'
-                )
             
+            year_periods = [
+                period, self.periods[i+1], self.periods[i+2], self.periods[i+3]
+                ]
+            
+            if self.is_county_wide:
+                year_periods = [f'SUM({period})' for period in year_periods]
+            
+            sum_year_strings.append(
+                '+'.join(year_periods)
+                )
+        
         return sum_year_strings
         
         
     def _set_population_query(self):
-        self.population_query = f'''
-            SELECT Period, Population
+        if self.is_county_wide:
+            self.population_query = f'''
+            SELECT Period, SUM(Population)
             
-            FROM Population
+            FROM Population p, {constants.JURISDICTIONS_TABLE} j
             
-            WHERE {constants.TAC_COLUMN_NAME} = ?
+            WHERE p.{constants.TAC_COLUMN_NAME} 
+                    = j.{constants.TAC_COLUMN_NAME}
+                AND j.{constants.COUNTY_ID_COLUMN_NAME} = ?
                 AND Period in {tuple(self.interval_periods)}
                 
-            ORDER BY Period
+            GROUP BY Period
+            
+            ORDER BY Period 
             '''
+            
+        else:
+            self.population_query = f'''
+                SELECT Period, Population
+                
+                FROM Population
+                
+                WHERE {constants.TAC_COLUMN_NAME} = ?
+                    AND Period in {tuple(self.interval_periods)}
+                    
+                ORDER BY Period
+                '''
         
     def _set_category_totals(self):
+        args = (
+            (self.jurisdiction.county_id, ) if self.is_county_wide 
+            else (self.jurisdiction.tac, )
+            )
+        
         self.category_totals = utilities.execute_sql(
             sql_code=self.sales_tax_query,
-            args=(self.jurisdiction.tac, ),
+            args=args,
             db_name=constants.STATEWIDE_DATASETS_DB,
             fetchall=True,
             attach_db=constants.STARS_DB
@@ -173,11 +235,20 @@ class AnnualizedPerCapitaChart:
         
         
     def _set_population(self):
+        if self.is_county_wide:
+            args = (self.jurisdiction.county_id, )
+            attach_db = constants.STARS_DB
+        
+        else:
+            args = (self.jurisdiction.tac, )
+            attach_db = ''
+        
         query_results = utilities.execute_sql(
             sql_code=self.population_query,
-            args=(self.jurisdiction.tac, ),
+            args=args,
             db_name=constants.STATEWIDE_DATASETS_DB,
-            fetchall=True
+            fetchall=True,
+            attach_db=attach_db
             )   
         
         if query_results:
@@ -203,7 +274,7 @@ class AnnualizedPerCapitaChart:
         
     def _set_output_path(self):
         name = (
-            f'{self.selections.period} {self.jurisdiction.id} {OUTPUT_NAME}'
+            f'{self.jurisdiction.id} {self.selections.period} {OUTPUT_NAME}'
             )
         
         self.output_path = f'{self.jurisdiction.folder}{name}.{OUTPUT_TYPE}'
