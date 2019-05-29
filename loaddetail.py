@@ -5,13 +5,198 @@ Created on Oct 24, 2018
 '''
 
 from contextlib import suppress
+import pandas as pd
 from tkinter import messagebox as msg
 
 from addressparser import AddressParser
 import constants
 from rundictionary import RunDictionary
+from sqlquery import SqlQuery
 import utilities
 
+
+ADDRESS_COLUMN_NAME = 'Address'
+PERMIT_COLUMN_NAME = 'AccountNumber'
+SUB_COLUMN_NAME = 'AccountSubNumber'
+
+SCHEMA = 'stars'
+
+MAX_PERIOD_COUNT = 40
+from progress import LoadingCircle
+from timeit import default_timer as timer
+class FetchDetail:
+    '''
+    '''
+    
+    
+    fetch_columns = [
+        'BusinessName', PERMIT_COLUMN_NAME, SUB_COLUMN_NAME, 
+        ADDRESS_COLUMN_NAME, 'ZIP', 'NAICSCode', 'LP_DateIssued', 
+        'LP_DateInactive', 'EconQtr_PeriodDescription', 'Amount'
+        ]
+    
+    
+    def __init__(self, controller, selections):
+        self.controller = controller
+        self.selections = selections
+        
+        self.query = ''
+        self.table_name = ''
+        
+        self.df = None
+        self.jurisdiction = None
+        
+        self._set_period_count()
+        self._set_period_headers()
+        
+        self.newest_period = int(f'{self.selections.year}0{self.selections.quarter}')
+        self.last_period = int(f'{self.period_headers[-1][-4:]}0{self.period_headers[-1][0]}')
+     
+        
+    def _set_period_count(self):
+        self.period_count = (
+            MAX_PERIOD_COUNT if self.selections.period_count == 'All'
+            else int(self.selections.period_count)
+            )
+        
+        
+    def _set_period_headers(self):
+        self.period_headers = []
+        
+        quarter, year = self.selections.quarter, self.selections.year
+        
+        quarter_suffixes = {
+            1: 'st',
+            2: 'nd',
+            3: 'rd',
+            4: 'th'
+            }
+        
+        for _ in range(self.period_count):
+            self.period_headers.append(
+                f'{quarter}{quarter_suffixes[quarter]} Quarter {year}'
+                )
+            
+            if quarter == 1:
+                quarter = 4
+                year -= 1
+            
+            else:
+                quarter -= 1
+            
+
+    def main(self, jurisdiction):
+        self.jurisdiction = jurisdiction
+        
+        self.controller.update_progress(
+            0, f'{self.jurisdiction.id}: Fetching data.'
+            )
+        
+        self._set_table_name()
+        self._set_query()
+        self._set_df()
+        
+        # formats the permit numbers
+        self.df[PERMIT_COLUMN_NAME] = self.df[
+            PERMIT_COLUMN_NAME].apply(
+                lambda x: utilities.format_permit_number(x)
+                )
+                
+        load_detail = LoadDetail(self, self.df, 'QE')
+        load_detail.load(jurisdiction)
+
+        
+    def _set_table_name(self):
+        if utilities.is_addon(self.jurisdiction):
+            self.table_name = (
+                'SalesTaxPaymentWithSpreadCA_QC_AO_Stage' 
+                if self.selections.basis == 'Cash'
+                else 'SalesTaxPaymentWithSpreadCA_QE_AO_Stage'
+                )
+        else:
+            self.table_name = (
+                'SalesTaxPaymentWithSpread_QC_Stage' 
+                if self.selections.basis == 'Cash'
+                else 'SalesTaxPaymentWithSpread_QE_Stage'
+                )
+        
+        
+    def _set_query(self):
+        self.query = f'''
+            SELECT {", ".join(self.fetch_columns)}
+            
+            FROM {SCHEMA}.{self.table_name}
+            
+            WHERE TaxAreaCode = {self.jurisdiction.tac}
+                AND ABS(Amount) >= 1
+                AND Quarter_Key >= {self.last_period}
+                AND Quarter_Key <= {self.newest_period}
+            '''
+                
+                
+    def _set_df(self):
+        address_index = self.fetch_columns.index(ADDRESS_COLUMN_NAME)
+        permit_index = self.fetch_columns.index(PERMIT_COLUMN_NAME)
+        sub_index = self.fetch_columns.index(SUB_COLUMN_NAME)
+        
+        horizontal = {}
+        initial_amounts = {period : 0 for period in self.period_headers}
+        
+        sql_query = SqlQuery()
+        
+        loading_circle = LoadingCircle(self.controller.progress, 'Fetching')
+        loading_circle.start()
+        
+        for i, row in enumerate(sql_query.execute_query(self.query, cursor=True)):
+            loading_circle.update_text(f'Fetching\n{i:,}')
+            
+            sub = row[sub_index]
+            key = f'{row[address_index]}{row[permit_index]}{sub}'
+          
+            if key not in horizontal:
+                # last two columns are the quarter and the amount
+                permit_data = list(row[:-2])
+                  
+                if sub is None:
+                    # assigns the default sub
+                    permit_data[2] = constants.MISSING_SUB_PLACE_HOLDER
+                   
+                amounts = initial_amounts.copy()
+                   
+                horizontal[key] = {
+                    'permit_data' : permit_data, 'amounts' : amounts
+                    }
+                   
+            period = row[-2]
+            amount = float(row[-1])
+              
+            horizontal[key]['amounts'][period] += amount
+         
+        row_count = len(horizontal)
+ 
+        tac_column = [self.jurisdiction.tac for _ in range(row_count)]
+        jurisdiction_column = [self.jurisdiction.name for _ in range(row_count)]
+        est_column = ['' for _ in range(row_count)]
+ 
+        self.df = [
+            row['permit_data'] + list(row['amounts'].values())
+            for row in horizontal.values()
+            ]
+         
+        self.df = pd.DataFrame(self.df)
+ 
+        self.df.insert(0, constants.TAC_COLUMN_NAME, tac_column)
+        self.df.insert(0, 'jurisdiction', jurisdiction_column)
+        self.df.insert(constants.ESTIMATE_COLUMN, constants.ESTIMATE_COLUMN_NAME, est_column)
+ 
+        columns = ['jurisdiction', constants.TAC_COLUMN_NAME] + self.fetch_columns[:-2] + ['est']
+        columns.extend(self.period_headers)
+ 
+        self.df.columns = columns
+        
+        sql_query.close()
+        loading_circle.end()
+        
 
 class LoadDetail:
     '''
@@ -34,7 +219,7 @@ class LoadDetail:
     NAICS_DIGITS = 6
     
     
-    def __init__(self, controller, df, name):
+    def __init__(self, controller, df, name='', is_cash=False):
         self.controller = controller
         
         self.df = df
@@ -55,7 +240,7 @@ class LoadDetail:
         
         self.quarterly_amounts = []
         
-        self.is_cash = 'qc' in self.name.lower() 
+        self.is_cash = (is_cash or 'qc' in self.name.lower())
         
         self.values_db = (
             constants.QUARTERLY_CASH_DB if self.is_cash 
