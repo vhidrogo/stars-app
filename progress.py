@@ -282,8 +282,8 @@ class LoadingCircle(threading.Thread):
         self.canvas = tk.Canvas(self.window)
         self.canvas.pack()
         
-        # writes "Loading" in the center of the window
-        self.canvas.create_text(
+        # writes the text in the center of the window
+        self.canvas_text = self.canvas.create_text(
             self.WINDOW_CENTER, self.WINDOW_CENTER, text=self.text, 
             width=self.WINDOW_DIM
             )
@@ -440,11 +440,11 @@ class LoadingCircle(threading.Thread):
         return center
     
     
-    
-    
-    
-    
-    
+    def update_text(self, text):
+        '''
+            Updates the text object in the center of the canvas.
+        '''
+        self.canvas.itemconfig(self.canvas_text, text=text)
     
     
     
