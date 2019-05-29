@@ -33,12 +33,12 @@ import comparefiles
 import constants
 from countypool import CountyPool
 import database
-from downloadbusinessdetail import DownloadBusinessDetail
 from dropfile import DropDetail
 from dropfile import DropDetailJoin
 from econtotals import EconTotals
 from exportbusinessdetail import ExportBusinessDetail
 import loadbusinesscodetotals
+from loaddetail import FetchDetail
 import loadgeoranges
 from packet import CompilePacket
 import parseaddresses
@@ -126,10 +126,8 @@ class Model(threading.Thread):
                         export_detail.main(jurisdiction)
                     
                     elif process == 'Load Business Detail':
-                        download_detail = DownloadBusinessDetail(
-                            self, self.selections
-                            )
-                        download_detail.main(jurisdiction)
+                        load_detail = FetchDetail(self, self.selections)
+                        load_detail.main(jurisdiction)
                     
                     elif process == 'Prior Period Payments (PYBG)':
                         prior_period_payments = PriorPeriodPayments(self)
@@ -1048,7 +1046,7 @@ class Controller:
                 ]
             },
         
-        'Load Business Detail': {'primary_options': ['Basis']},
+        'Load Business Detail': {'primary_options': ['Basis', 'Count']},
         
         'Prior Period Payments (PYBG)': {'primary_options': ['Open']},
         
