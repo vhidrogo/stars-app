@@ -340,7 +340,7 @@ def get_column_names(db_name, table_name):
     
 def get_period_headers(
         count, selections=None, period=None, year=None, quarter=None, 
-        descending=False, prefix='', sep=''
+        descending=False, prefix='', sep='', step=None
         ):
     
     if selections or period:
@@ -365,6 +365,9 @@ def get_period_headers(
         
         else:
             quarter -= 1
+            
+    if step:
+        headers = headers[::step]
                 
     return headers if descending else list(reversed(headers))
 
@@ -500,3 +503,35 @@ def fetch_jurisdiction_header(jurisdiction_name):
         header = jurisdiction_name
     
     return header
+
+
+def next_period(period, newer=False):
+        '''
+            Args:
+                period: 2-tuple containing the year and quarter as integers.
+                
+                newer: Boolean that determines whether the returned period
+                    will be newer then the given period.
+                
+            Returns:
+                2-tuple containing the year and quarter as integers for 
+                    the next newer or older period.
+        '''
+        year, quarter = period 
+        
+        if newer:
+            if quarter == 4:
+                quarter = 1
+                year += 1
+                
+            else:
+                quarter += 1
+        else:
+            if quarter == 1:
+                quarter = 4
+                year -= 1
+            
+            else:
+                quarter -= 1
+            
+        return (year, quarter)
