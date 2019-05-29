@@ -10,6 +10,7 @@ from tkinter import messagebox as msg
 
 from addressparser import AddressParser
 import constants
+from progress import LoadingCircle
 from rundictionary import RunDictionary
 from sqlquery import SqlQuery
 import utilities
@@ -22,35 +23,44 @@ SUB_COLUMN_NAME = 'AccountSubNumber'
 SCHEMA = 'stars'
 
 MAX_PERIOD_COUNT = 40
-from progress import LoadingCircle
-from timeit import default_timer as timer
+
+
 class FetchDetail:
     '''
+        Class with methods that fetch the data from the SQL Server
+        that will serve as input for LoadDetail().
     '''
     
-    
-    fetch_columns = [
-        'BusinessName', PERMIT_COLUMN_NAME, SUB_COLUMN_NAME, 
-        ADDRESS_COLUMN_NAME, 'ZIP', 'NAICSCode', 'LP_DateIssued', 
-        'LP_DateInactive', 'EconQtr_PeriodDescription', 'Amount'
-        ]
-    
-    
+
     def __init__(self, controller, selections):
         self.controller = controller
         self.selections = selections
+        
+        self.is_cash = self.selections.basis == 'Cash'
         
         self.query = ''
         self.table_name = ''
         
         self.df = None
+        self.loading_circle = None
         self.jurisdiction = None
         
+        self._set_fetch_columns()
         self._set_period_count()
         self._set_period_headers()
         
         self.newest_period = int(f'{self.selections.year}0{self.selections.quarter}')
         self.last_period = int(f'{self.period_headers[-1][-4:]}0{self.period_headers[-1][0]}')
+        
+        
+    def _set_fetch_columns(self):
+        period_column = 'CashQtr_PeriodDescription' if self.is_cash else 'EconQtr_PeriodDescription'
+        
+        self.fetch_columns = [
+            'BusinessName', PERMIT_COLUMN_NAME, SUB_COLUMN_NAME, 
+            ADDRESS_COLUMN_NAME, 'ZIP', 'NAICSCode', 'LP_DateIssued', 
+            'LP_DateInactive', period_column, 'Amount'
+            ]
      
         
     def _set_period_count(self):
@@ -63,8 +73,6 @@ class FetchDetail:
     def _set_period_headers(self):
         self.period_headers = []
         
-        quarter, year = self.selections.quarter, self.selections.year
-        
         quarter_suffixes = {
             1: 'st',
             2: 'nd',
@@ -72,24 +80,26 @@ class FetchDetail:
             4: 'th'
             }
         
+        year, quarter = self.selections.year, self.selections.quarter
+        
+        # the cash data is offset by one quarter, so the selected quarter
+        # has to be shifted one forward
+        if self.is_cash:
+            year, quarter = utilities.next_period((year, quarter), newer=True)
+        
         for _ in range(self.period_count):
             self.period_headers.append(
                 f'{quarter}{quarter_suffixes[quarter]} Quarter {year}'
                 )
             
-            if quarter == 1:
-                quarter = 4
-                year -= 1
-            
-            else:
-                quarter -= 1
-            
+            year, quarter = utilities.next_period((year, quarter))
+                
 
     def main(self, jurisdiction):
         self.jurisdiction = jurisdiction
         
         self.controller.update_progress(
-            0, f'{self.jurisdiction.id}: Fetching data.'
+            0, f'{self.jurisdiction.id}: Running query...'
             )
         
         self._set_table_name()
@@ -101,9 +111,9 @@ class FetchDetail:
             PERMIT_COLUMN_NAME].apply(
                 lambda x: utilities.format_permit_number(x)
                 )
-                
-        load_detail = LoadDetail(self, self.df, 'QE')
-        load_detail.load(jurisdiction)
+        
+        load_detail = LoadDetail(self.controller, self.df, is_cash=self.is_cash)
+        load_detail.load(self.jurisdiction)
 
         
     def _set_table_name(self):
@@ -142,13 +152,23 @@ class FetchDetail:
         horizontal = {}
         initial_amounts = {period : 0 for period in self.period_headers}
         
+        row_count = 0
+        
         sql_query = SqlQuery()
         
-        loading_circle = LoadingCircle(self.controller.progress, 'Fetching')
-        loading_circle.start()
-        
-        for i, row in enumerate(sql_query.execute_query(self.query, cursor=True)):
-            loading_circle.update_text(f'Fetching\n{i:,}')
+        for i, row in enumerate(
+            sql_query.execute_query(self.query, cursor=True), start=1
+            ):
+            
+            if i == 1:
+                self.controller.update_progress(
+                    0, f'{self.jurisdiction.id}: Fetching data...'
+                    )
+                
+                self.loading_circle = LoadingCircle(self.controller.progress, 'Fetching')
+                self.loading_circle.start()
+            
+            self.loading_circle.update_text(f'Fetching\n{i:,}')
             
             sub = row[sub_index]
             key = f'{row[address_index]}{row[permit_index]}{sub}'
@@ -171,6 +191,17 @@ class FetchDetail:
             amount = float(row[-1])
               
             horizontal[key]['amounts'][period] += amount
+            
+            row_count += 1
+            
+        sql_query.close()
+        
+        if self.loading_circle is not None:
+            self.loading_circle.end()
+        
+        self.controller.update_progress(
+            0, f'{self.jurisdiction.id}: Spreading {row_count} rows horizontally.'
+            )
          
         row_count = len(horizontal)
  
@@ -193,9 +224,6 @@ class FetchDetail:
         columns.extend(self.period_headers)
  
         self.df.columns = columns
-        
-        sql_query.close()
-        loading_circle.end()
         
 
 class LoadDetail:
