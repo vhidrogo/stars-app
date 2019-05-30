@@ -17,15 +17,6 @@ FETCH_COLUMNS = ['TransactionType', 'CQuarterName', 'Amount']
 
 OUTPUT_NAME = 'Summarized Cash Anomalies'
 
-'''
-    REQUIREMENTS:
-        1. Pull 12 periods of amounts by transaction type
-        2. Spread periods horizontally
-        3. Output data in selected output format 
-        
-    TODO:
-        Requirement 2
-'''
 
 class CashAnomalies:
     '''
@@ -52,6 +43,10 @@ class CashAnomalies:
     def main(self, jurisdiction):
         self.jurisdiction = jurisdiction
         
+        self.controller.update_progress(
+            0, f'{self.jurisdiction.id}: Fetching data.'
+            )
+        
         self._set_query()
         self._set_df()
         
@@ -59,6 +54,10 @@ class CashAnomalies:
             self._transpose_periods()
             self._set_output_path()
             self._output()
+            
+        self.controller.update_progress(
+            100, f'{self.jurisdiction.id}: Finished.'
+            )
             
         if self.output_saved and self.selections.open_output:
             utilities.open_file(self.output_path)
@@ -84,13 +83,13 @@ class CashAnomalies:
         
         sql_query.close()
         
-        
+    
     def _transpose_periods(self):
         transposed = {}
         
         for row in self.df.itertuples(index=False):
             transaction_type = row[0]
-            print(row)
+            
             if transaction_type not in transposed:
                 amounts = {period: 0 for period in self.period_headers}
                 
@@ -99,7 +98,7 @@ class CashAnomalies:
             period = row[1]
             amount = row[-1]
             
-            amounts[period] += amount
+            transposed[transaction_type][period] += amount
         
         self.df = [
             (transaction_type, ) + tuple(amounts.values())
