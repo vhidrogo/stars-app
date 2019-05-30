@@ -13,9 +13,10 @@ import tkinter as tk
 from tkinter import filedialog
 from tkinter import messagebox as msg
 from tkinter import ttk
+import traceback
 
 import constants
-import progress
+from progress import LoadingCircle
 import utilities
 
 
@@ -328,6 +329,7 @@ class Controller:
         self.df = None
         
         self.load_enabled = False
+        self.reading_file = False
         
         self.file_path = ''
         self.file_type = ''
@@ -353,16 +355,12 @@ class Controller:
             if self._is_supported_file_type():
                 self.view.file_path_var.set(self.file_path)
                 
-                self._set_df()
+                # reads the contents of the file into a DataFrame in 
+                # another thread
+                thread = threading.Thread(target=self._set_df)
+                thread.daemon = True
+                thread.start()
                 
-                if self.df is not None:
-                    self.file_columns = list(self.df)
-                    
-                    self._set_current_period_column_index()
-                    self._set_oldest_period_column_index()
-                    self._set_business_code_column_index()
-                    self._set_tac_column_index()
-                    
             else:
                 msg.showinfo(
                     self.title, 
@@ -382,7 +380,31 @@ class Controller:
             Reads the file into a pandas dataframe using the function stored
             for the file type.
         '''
-        self.df = self.supported_input_types[self.file_type](self.file_path)
+        loading_circle = LoadingCircle(self.view, 'Reading')
+        loading_circle.start()
+        
+        try:
+            self.df = self.supported_input_types[self.file_type](self.file_path)
+            
+        except Exception:
+            self.df = None
+            
+            msg.showerror(
+                self.selections.process_name, 
+                'Unhandled exception occurred:\n\n'
+                f'{traceback.format_exc()}'
+                )
+        
+        finally:
+            loading_circle.end()
+            
+        if self.df is not None:
+            self.file_columns = list(self.df)
+            
+            self._set_current_period_column_index()
+            self._set_oldest_period_column_index()
+            self._set_business_code_column_index()
+            self._set_tac_column_index()
         
 
     def _set_current_period_column_index(self):
