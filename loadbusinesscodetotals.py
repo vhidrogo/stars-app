@@ -4,6 +4,8 @@ Created on Dec 17, 2018
 @author: vahidrogo
 '''
 
+from contextlib import suppress
+import math
 import pandas as pd
 import sqlite3 as sql
 import threading
@@ -13,8 +15,14 @@ from tkinter import messagebox as msg
 from tkinter import ttk
 
 import constants
-from progress import Progress
+import progress
 import utilities
+
+
+BUSINESS_CODE_TEXT = 'Business Code'
+CURRENT_PERIOD_TEXT = 'Current Period'
+OLDEST_PERIOD_TEXT = 'Oldest Period'
+TAC_TEXT = 'Tax Area Code'
 
 
 class Model(threading.Thread):
@@ -33,232 +41,144 @@ class Model(threading.Thread):
     tac_column_name = 'TAX_AREA'
     
     
-    def __init__(self, file_path, period, title):
+    def __init__(self, df, col_indexes, period):
         super().__init__()
         
-        self.file_path = file_path
+        self.df = df
+        self.col_indexes = col_indexes
         self.period = period
-        self.title = title
         
-        self.file_type = self.file_path.rsplit('.', 1)[1]
-        self.year, self.quarter = self.period.split('Q')
+        self.col_names = list(self.df)
         
-        self.last_period_index = 0
-        self.period_count = 0
+        # name of table that will be created
+        self.table = ''
         
-        self.df = None
+        # name of business code column
+        self.bc_col = constants.BUSINESS_CODE_ID_COLUMN_NAME
+         
+        # name of tax area code column
+        self.tac_col = constants.TAC_COLUMN_NAME
         
-        self.abort = False
+        self._set_period_cols()
         
         self.column_names = []
         self.column_string_names = []
         self.table_column_names = []
         
-        # converts the tac to a string and inserts the leading zero if 
-        # it is missing it, it is missing it if it only has four digits
-        # converts the business code to an int and fills in the default 
-        # business code if it is NULL
-        self.converters = {
-            self.input_columns[
-                'tac'] : lambda x: '0' + str(x) if len(str(x)) == 4 else str(x),
-            
-            self.input_columns[
-                'business_code'] : lambda x: int(x) if x not in ('', 'NULL') else constants.DEFAULT_BUSINESS_CODE
-            }
         
-        # dictionary with input type as tkey and pandas function that read the 
-        # file type as value
-        self.supported_input_types = {
-            'csv' : pd.read_csv, 'xlsx' : pd.read_excel
-            }
+    def _set_period_cols(self):
+        period_count = (
+            self.col_indexes['Current Period'] - self.col_indexes['Oldest Period'] + 1
+            )
+        
+        self.period_cols = utilities.get_period_headers(
+            count=period_count, 
+            period=self.period, 
+            prefix=constants.QUARTER_COLUMN_PREFIX
+            )
         
 
     def run(self):
-        self.progress = Progress(self, self.title, abort=False)
+        self._set_column_names()
+        self._reduce_columns()
+        self._convert_tac_column()
+        self._convert_business_code_column()
+        self._group_by_business_code()
+        self._insert_id_column()
+        self._set_table_name()
+        self._create_table()
+
         
-        if self._supported_input_type():
-            self.progress.update_progress(0, f'Reading {self.file_path}.')
-            
-            # reads file into pandas dataframe
-            self._set_df()
-            #self.df.to_csv('business_code_totals_initial_load.csv', index=False)
-            if self.df is not None:
-                self._set_table_name()
-                 
-                self.column_names = list(self.df)
-                #print('column names:', self.column_names)
-                '''
-                    TODO
-                     
-                    Alert the user if the index entered is greater than the 
-                    number of columns
-                '''
-                self._set_last_period_index()
-                self._set_period_count()
-                #print('last period index:', self.last_period_index)
-                #print('period count:', self.period_count)
-                self.progress.update_progress(20, 'Processing data.')
-                 
-                self._drop_unneeded_columns()
-                self.column_names = list(self.df)
-                #print('column names after dropped unneeded:', self.column_names)
-                utilities.FillNa.fill_na(self.df)
-                 
-                #self._fill_business_code_blanks()
-                    
-                self._group_by_business_code()
-                #self.df.to_csv('business_code_totals_after_group_by_bc.csv', index=False)
-                self._set_table_column_names()
-                
-                # sets the column names in the dataframe to the columns that 
-                # will be in the table 
-                self.df.columns = self.table_column_names
-                 
-                #self._convert_business_code_column_to_int()
-                 
-                self.progress.update_progress(25, 'Inserting id column.')
-                
-                self._insert_id_column()
-                #self.df.to_csv('business_code_totals_after_id_column.csv', index=False)
-                self.progress.update_progress(85, 'Creating table.')
-                 
-                self._create_table()
-                 
-                self.progress.update_progress(100, 'Finished.')
-                
-        self.progress.destroy()
+    def _set_column_names(self):
+        col_names = list(self.df)
+        
+        col_names[self.col_indexes['Business Code']] = self.bc_col
+        col_names[self.col_indexes['Tax Area Code']] = self.tac_col
+        
+        col_names[
+            self.col_indexes['Oldest Period'] : self.col_indexes['Current Period'] + 1
+            ] = self.period_cols
+        
+        self.df.columns = col_names
         
         
-    def _supported_input_type(self):
-        supported = False
-        
-        if self.file_type in self.supported_input_types:
-            supported = True
-            
-        else:
-            msg.showinfo(
-                self.title, 'Input file type must be one of:\n\n'
-                f'{list(self.supported_input_types.keys())}.'
-                )
-        
-        return supported
-        
-        
-    def _set_df(self):
+    def _reduce_columns(self):
         '''
-            Reads the file into a pandas dataframe using the function stored
-            for the file type.
+            Drops all the unneeded columns.
         '''
-        self.df = self.supported_input_types[self.file_type](
-            self.file_path, converters=self.converters
+        cols = [self.tac_col, self.bc_col] + self.period_cols
+        
+        for col in list(self.df):
+            if col not in cols:
+                self.df.drop(col, axis=1, inplace=True)
+  
+
+    def _convert_tac_column(self):
+        '''
+            Converts the tax area code column to string and inserts the 
+            leading zero if one is needed.
+        '''
+        self.df[self.tac_col] = self.df[self.tac_col].apply(
+            lambda x: utilities.format_tac(x)
             )
         
         
+    def _convert_business_code_column(self):
+        '''
+            Converts the business code column to integer and fills in the 
+            blanks with the default business code.
+        '''
+        self.df[self.bc_col] = self.df[self.bc_col].apply(
+            lambda x: 
+                int(x) if not math.isnan(x) and x not in ('', 'NULL') else constants.DEFAULT_BUSINESS_CODE
+            )
+        
+
     def _set_table_name(self):
-        self.table_name = constants.BUSINESS_CODE_TOTALS_TABLE
+        self.table = constants.BUSINESS_CODE_TOTALS_TABLE
         
         if self._is_addon():
-            self.table_name += constants.ADDON_SUFFIX
+            self.table += constants.ADDON_SUFFIX
         
         
     def _is_addon(self):
         # gets the first tac in the data
-        tac = self.df.iloc[:, self.input_columns['tac']][0]
+        tac = self.df[self.tac_col][0]
         
         is_addon = tac[:2] == constants.ADDON_IDENTIFIER
         
         return is_addon
     
-    
-    def _set_last_period_index(self):
-        column_name = f'{constants.QUARTER_COLUMN_PREFIX}{self.year}{self.quarter}'.upper()
-        
-        if column_name in self.column_names:
-            self.last_period_index = self.column_names.index(column_name)
-            
-            
-    def _set_period_count(self):
-        self.period_count = self.last_period_index - self.input_columns['first_period'] + 1
-        
-
-    def _drop_unneeded_columns(self):
-        '''
-            Drops the column from the pandas dataframe that are not needed.
-        '''
-        drop_columns = self._get_drop_column_names()
-        
-        for column in drop_columns:
-            self.df.drop(column, axis=1, inplace=True)
-        
-        
-    def _get_drop_column_names(self):
-        drop_columns = []
-        
-        for i, name in enumerate(self.column_names):
-            if (
-                i != self.input_columns['tac'] and i != self.input_columns['business_code'] 
-                and
-                not (
-                    self.input_columns['first_period'] <= i 
-                    <= self.last_period_index
-                    )
-                ):
-                drop_columns.append(name)
-                
-        return drop_columns
-    
         
     def _group_by_business_code(self):
-        # tac and business code column will be used to group the data
-        group_columns = [self.tac_column_name, self.business_code_column_name]
-        
-        # all periods will be summed
-        sum_columns = [
-            column_name for column_name in self.column_names 
-            if constants.QUARTER_COLUMN_PREFIX in column_name.lower()
-            ]
-        
+        '''
+            Groups by the business code to consolidate the rows with 
+            the default business code that was filled in for the 
+            blanks.
+        '''
         self.df = self.df.groupby(
-            group_columns, as_index=False, sort=False
-            )[sum_columns].sum()
-            
-            
-    def _set_table_column_names(self):
-        names = [
-            constants.TAC_COLUMN_NAME, constants.BUSINESS_CODE_ID_COLUMN_NAME
-            ]
-        
-        period_headers = utilities.get_period_headers(
-            count=self.period_count, year=int(self.year), quarter=int(self.quarter)
-            )
-        
-        period_names = [
-            f'{constants.QUARTER_COLUMN_PREFIX}{i}'.lower() 
-            for i in period_headers
-            ]
-        
-        self.table_column_names = names + period_names
+            [self.tac_col, self.bc_col], as_index=False, sort=False
+            )[self.period_cols].sum()
         
             
     def _insert_id_column(self):
-        # tac and business code column
-        key_columns = [0, 1]
-            
-        id_column = self.df.iloc[
-            :, key_columns].apply(lambda x: '-'.join(x.map(str)), axis=1)
-        
+        '''
+            Inserts a column at index 0 that will serve as the unique 
+            identifier and consists of the tax area code and business 
+            code number separated by a dash.
+        '''
+        id_column = self.df.apply(
+            lambda row: f'{row[self.tac_col]}-{row[self.bc_col]}', axis=1
+            )
+         
         self.df.insert(0, constants.ID_COLUMN_NAME, id_column)
         
        
     def _create_table(self):
-        con = sql.connect(
-            constants.DB_PATHS[constants.STATEWIDE_DATASETS_DB]
-            )
+        con = sql.connect(constants.DB_PATHS[constants.STATEWIDE_DATASETS_DB])
 
         with con:
-            self.df.to_sql(
-                self.table_name, con, if_exists='replace', index=False
-                )
+            self.df.to_sql(self.table, con, if_exists='replace', index=False)
         
         con.close()
     
@@ -268,8 +188,8 @@ class View(tk.Toplevel):
     '''
     
     
-    LABEL_WIDTH = 7
-    WINDOW_HEIGHT = 110
+    LABEL_WIDTH = 14
+    WINDOW_HEIGHT = 240
     WINDOW_WIDTH = 550
     
     
@@ -281,8 +201,24 @@ class View(tk.Toplevel):
         # sets the window title
         self.title(title)
         
-        self.file_path = tk.StringVar()
-        self.period = tk.StringVar(value=self.controller.selected_period)
+        self.load_btn = None
+        
+        self.col_index_texts = [
+            CURRENT_PERIOD_TEXT,
+            OLDEST_PERIOD_TEXT,
+            BUSINESS_CODE_TEXT,
+            TAC_TEXT,
+            ]
+        
+        self.file_path_var = tk.StringVar()
+        self.period_var = tk.StringVar(value=self.controller.selected_period)
+        
+        self.col_index_vars = {
+            text: tk.StringVar() for text in self.col_index_texts
+            }
+        
+        for var in self.col_index_vars.values():
+            var.trace('w', self.controller.on_column_index_changed)
         
         self._center_window()
         self._make_widgets()
@@ -301,30 +237,44 @@ class View(tk.Toplevel):
         choose_frm = ttk.Frame(self)
         path_frm = ttk.Frame(choose_frm)
         period_frm = ttk.Frame(self)
+        col_indexes_frm = ttk.Labelframe(self, text='Column Indexes (0-indexed integers)')
         button_frm = ttk.Frame(self)
         
-        path_lbl = ttk.Label(path_frm, text='Path:', width=self.LABEL_WIDTH)
+        path_lbl = ttk.Label(path_frm, text='File Path:', width=self.LABEL_WIDTH)
         path_ent = ttk.Entry(
-            path_frm, state='readonly', textvariable=self.file_path
+            path_frm, state='readonly', textvariable=self.file_path_var
             )
         choose_btn = ttk.Button(
             choose_frm, text='Choose', command=self.controller.on_choose_click
             )
         
-        period_lbl = ttk.Label(period_frm, text='Period:', width=self.LABEL_WIDTH)
+        period_lbl = ttk.Label(
+            period_frm, text='Current Period:', width=self.LABEL_WIDTH
+            )
+        
         period_cbo = ttk.Combobox(
-            period_frm, justify='right', state='readonly', textvariable=self.period,
-            values=self.controller.period_options, width=7
+            period_frm, justify='right', state='readonly', width=7,
+            textvariable=self.period_var, values=self.controller.period_options
+            )
+        
+        period_cbo.bind(
+            '<<ComboboxSelected>>', self.controller.on_current_period_selected
             )
         
         self.load_btn = ttk.Button(
             button_frm, text='Load', command=self.controller.on_load_click
             )
+        
         cancel_btn = ttk.Button(button_frm, text='Cancel', command=self.destroy)
         
         choose_frm.pack(fill='x', pady=constants.OUT_PAD)
         path_frm.pack(fill='x', expand=1, side='left', padx=constants.OUT_PAD)
         period_frm.pack(anchor='w', padx=constants.OUT_PAD)
+        
+        col_indexes_frm.pack(
+            anchor='w', padx=constants.OUT_PAD, pady=constants.OUT_PAD
+            )
+        
         button_frm.pack(
             anchor='e', padx=constants.OUT_PAD, pady=constants.OUT_PAD
             )
@@ -332,12 +282,24 @@ class View(tk.Toplevel):
         path_lbl.pack(side='left')
         path_ent.pack(fill='x', expand=1, )
         choose_btn.pack(padx=constants.OUT_PAD)
-        
         period_lbl.pack(side='left')
         period_cbo.pack()
-        
         self.load_btn.pack(side='left', padx=constants.OUT_PAD)
         cancel_btn.pack()
+        
+        self._make_col_index_widgets(col_indexes_frm)
+        
+        
+    def _make_col_index_widgets(self, frame):
+        for text in self.col_index_texts:
+            frm = ttk.Frame(frame)
+            
+            lbl = ttk.Label(frm, text=text + ':', width=self.LABEL_WIDTH)
+            ent = ttk.Entry(frm, textvariable=self.col_index_vars[text])
+            
+            frm.pack()
+            lbl.pack(side='left')
+            ent.pack(fill='x')
         
         
     def disable_load_button(self):
@@ -355,31 +317,165 @@ class Controller:
     
     title = f'{constants.APP_NAME} - Load Business Code Totals'
     
+    business_code_col_name = 'BUSINESS_CODE'
+    tac_col_name = 'TAX_AREA'
+    
     
     def __init__(self, period_options, selected_period):
         self.period_options = period_options
         self.selected_period = selected_period
         
-        self.gui = View(self, self.title)
-        self.gui.disable_load_button()
+        self.df = None
+        
+        self.load_enabled = False
+        
+        self.file_path = ''
+        self.file_type = ''
+        
+        self.file_columns = []
+        
+        # dictionary where the keys are file extensions and they're associated
+        # values are pandas methods for opening that file type
+        self.supported_input_types = {
+            'csv' : pd.read_csv, 'xlsx' : pd.read_excel
+            }
+        
+        self.view = View(self, self.title)
+        self.view.disable_load_button()
         
         
     def on_choose_click(self):
-        file = filedialog.askopenfilename(parent=self.gui)
+        self.file_path = filedialog.askopenfilename(parent=self.view)
         
-        if file:
-            self.gui.file_path.set(file)
+        if self.file_path:
+            self.file_type = self.file_path.rsplit('.', 1)[1].lower()
             
-            self.gui.enable_load_button()
+            if self._is_supported_file_type():
+                self.view.file_path_var.set(self.file_path)
+                
+                self._set_df()
+                
+                if self.df is not None:
+                    self.file_columns = list(self.df)
+                    
+                    self._set_current_period_column_index()
+                    self._set_oldest_period_column_index()
+                    self._set_business_code_column_index()
+                    self._set_tac_column_index()
+                    
+            else:
+                msg.showinfo(
+                    self.title, 
+                    f'Unsupported file type: ({self.file_type}).\n.'
+                    'Supported file types are:\n '
+                    f'{tuple(self.supported_input_types)}.',
+                    parent=self.view
+                    )
+            
+            
+    def _is_supported_file_type(self):
+        return self.file_type in self.supported_input_types
+        
+        
+    def _set_df(self):
+        '''
+            Reads the file into a pandas dataframe using the function stored
+            for the file type.
+        '''
+        self.df = self.supported_input_types[self.file_type](self.file_path)
+        
+
+    def _set_current_period_column_index(self):
+        '''
+            Populates the index of the current period input column if one 
+            is able to be determined based on the selected year and quarter.
+        '''
+        period = self.view.period_var.get()
+        
+        year, quarter = period.split('Q')
+        
+        for i, name in enumerate(self.file_columns):
+            if year + quarter in name:
+                self.view.col_index_vars[CURRENT_PERIOD_TEXT].set(i)
+                
+                
+    def _set_oldest_period_column_index(self):
+        '''
+            Populates the index of the oldest period input column if one 
+            is able to be determined based on the first column that has 
+            the quarter column prefix.
+        '''
+        for i, name in enumerate(self.file_columns):
+            if constants.QUARTER_COLUMN_PREFIX in name.lower():
+                self.view.col_index_vars[OLDEST_PERIOD_TEXT].set(i)
+                break
+            
+            
+    def _set_business_code_column_index(self):
+        '''
+            Populates the index of the business code input column if one 
+            is able to be determined based on the index of the stored 
+            name.
+        '''
+        with suppress(ValueError):
+            index = self.file_columns.index(self.business_code_col_name)
+            self.view.col_index_vars[BUSINESS_CODE_TEXT].set(index)
+            
+            
+    def _set_tac_column_index(self):
+        '''
+            Populates the index of the tax area code input column if one 
+            is able to be determined based on the index of the stored 
+            name.
+        '''
+        with suppress(ValueError):
+            index = self.file_columns.index(self.tac_col_name)
+            self.view.col_index_vars[TAC_TEXT].set(index)
+            
+            
+    def on_current_period_selected(self, event):
+        if self.df is not None:
+            self._set_current_period_column_index()
+            
+            
+    def on_column_index_changed(self, *args):
+        if self.df is not None:
+            if self._valid_input_columns():
+                if not self.load_enabled:
+                    self.view.enable_load_button()
+                    self.load_enabled = True
+            else:
+                if self.load_enabled:
+                    self.view.disable_load_button()
+                    self.load_enabled = False
         
         
     def on_load_click(self):
-        file_path = self.gui.file_path.get()
+        self.view.destroy()
         
-        if file_path:
-            period = self.gui.period.get()
+        col_indexes = {
+            name: int(var.get()) 
+            for name, var in self.view.col_index_vars.items()
+            }
+        
+        model = Model(
+            self.df, col_indexes, self.view.period_var.get()
+            )
+        
+        model.start()
+        
+        msg.showinfo(self.title, 'Finished!')
             
-            model = Model(file_path, period, self.title)
-            model.start()
+            
+    def _valid_input_columns(self):
+        col_count = len(self.file_columns)
+        
+        for var in self.view.col_index_vars.values():
+            value = var.get()
+            
+            if not value.isdigit() or not 0 < int(value) < col_count:
+                return False
+                
+        return True
 
 
