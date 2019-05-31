@@ -423,13 +423,7 @@ class CountyPool:
     def _get_sheet_row(self, name):
         return self.sheet_properties['rows'][name]
     
-    
-    def _get_header(self):
-        return (
-            self.jurisdiction.name if 'County' in self.jurisdiction.name 
-            or 'City' in self.jurisdiction.name else f'City of {self.jurisdiction.name}')
-        
-        
+
     def _is_current_period(self, column_numer):
         current_column = self._get_sheet_column('current_quarter')
         
@@ -439,7 +433,7 @@ class CountyPool:
         
         
     def _write_report_header(self):
-        header = self._get_header()
+        header = utilities.fetch_jurisdiction_header(self.jurisdiction.name)
         
         sheet_row = self._get_sheet_row('report_header')
         last_col = self._get_sheet_column('last_column')
