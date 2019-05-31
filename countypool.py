@@ -10,14 +10,7 @@ import xlsxwriter
 import constants
 from internaldata import InternalData
 import utilities
-'''
-    TODO 
-    
-    Set the label for the jurisdiction based on whether it is a:
-        - city: City of ###, unless "City" is part of the name then: ### City
-        - town: Town of ###
-        - unincorporated: County of ###
-'''
+
 
 class CountyPool:
     '''
@@ -28,8 +21,6 @@ class CountyPool:
     RANK_QUARTERS = 4
     
     TOP_PERMIT_COUNT = 25
-    
-    pool_totals_table = 'quarterly_county_pool_totals'
     
     business_column = 'BUSINESS'
     permit_column = 'PERMIT'
@@ -43,8 +34,8 @@ class CountyPool:
     gray_color = '#dbdbdb'
     
     total_descriptions = {
-        'pool_totals' : 'Total County Pool', 
-        'city_pool_totals' : 'jurisdiction Share', 
+        'county_pool_amounts' : 'Total County Pool', 
+        'juri_pool_amounts' : 'jurisdiction Share', 
         'percent_share' : 'jurisdiction % of Total'}
     
     sheet_properties = {
@@ -58,12 +49,12 @@ class CountyPool:
         
         'rows' : {
             other_row_name : 36, 'business_description' : 9, 
-            'city_pool_totals' : 6, 'first_business' : 11, 
+            'juri_pool_amounts' : 6, 'first_business' : 11, 
             'percent_share' : 7, 
             
             'quarter_headers' : {'one' : 4, 'two' : 10},
             
-            'pool_totals' : 5, 'report_description' : 2, 'report_header' : 0, 
+            'county_pool_amounts' : 5, 'report_description' : 2, 'report_header' : 0, 
             'report_title' : 1}}
     
     format_properties = {
@@ -144,8 +135,8 @@ class CountyPool:
         self.quarter_changes = {}
         
         self.blank_business_names = []
-        self.city_pool_totals = []
-        self.pool_totals = []
+        self.juri_pool_amounts = []
+        self.county_pool_amounts = []
         self.top_businesses = []
         self.top_business_amounts = []
         
@@ -158,24 +149,148 @@ class CountyPool:
         self.jurisdiction = jurisdiction
         
         self.controller.update_progress(
-            0, 
-            f'{self.jurisdiction.id}: Pulling top {self.TOP_PERMIT_COUNT} '
-            'businesses.'
+            0, f'{self.jurisdiction.id}: Fetching county pool amounts.'
+            )
+         
+        self._set_jurisdiction_pool_amounts()
+        
+        if self.juri_pool_amounts:
+            # don't need to check if the county has amounts because if 
+            # the jurisdiction has amounts then the county will at least 
+            # have those amounts
+            self._set_county_pool_amounts()
+            self._set_percent_juri_shares()
+            
+            self.controller.update_progress(
+                0, f'{self.jurisdiction.id}: Fetching top {self.TOP_PERMIT_COUNT} permits.'
+                )
+            
+            self._process_top_businesses()
+            
+            if self.top_businesses:
+                self.controller.update_progress(
+                    0, f'{self.jurisdiction.id}: Creating output.'
+                    )
+                
+                self._insert_quarter_change(
+                    self.county_pool_amounts, 'county_pool_amounts'
+                    )
+                 
+                self._insert_quarter_change(
+                    self.juri_pool_amounts, 'juri_pool_amounts'
+                    )
+                
+                self._set_all_other_row()                  
+                self._set_output_path() 
+                self._create_excel_output()
+                
+                if self.blank_business_names:
+                    self._create_blank_businesses_file()
+                     
+                self.controller.update_progress(
+                    100, f'{self.jurisdiction.id}: Finished'
+                    )
+                 
+                if self.output_saved and self.selections.open_output:
+                    utilities.open_file(self.output_path)
+                
+        else:
+            msg.showinfo(
+                self.selections.title, 
+                f'No data returned for ({self.jurisdiction.tac}) from table:\n'
+                f'{constants.STATEWIDE_DATASETS_DB}.{constants.CDTFA_ALLOCATION_TABLE}.'
+                )
+            
+        
+    def _set_jurisdiction_pool_amounts(self):
+        query = f'''
+            SELECT county_pool_amount
+            
+            FROM {constants.CDTFA_ALLOCATION_TABLE}
+            
+            WHERE {constants.TAC_COLUMN_NAME} = ?
+                AND period IN {tuple(self.period_headers)}
+                
+            ORDER BY period
+            '''
+        
+        amounts = utilities.execute_sql(
+            sql_code=query, 
+            args=(self.jurisdiction.tac, ),
+            db_name=constants.STATEWIDE_DATASETS_DB,
+            fetchall=True
             )
         
-        self._set_period_colums_string()
+        if amounts:
+            self.juri_pool_amounts = [int(x[0]) for x in amounts]
+            
+            
+    def _set_county_pool_amounts(self):
+        query = f'''
+            SELECT SUM(county_pool_amount)
+            
+            FROM {constants.CDTFA_ALLOCATION_TABLE} c,
+                {constants.JURISDICTIONS_TABLE} j
+            
+            WHERE c.{constants.TAC_COLUMN_NAME} = j.{constants.TAC_COLUMN_NAME}
+                AND j.{constants.COUNTY_ID_COLUMN_NAME} = ?
+                AND period IN {tuple(self.period_headers)}
+                
+            GROUP BY period
+                
+            ORDER BY period
+            '''
         
-        pool_abbrev = f'{self.jurisdiction.tac[:2]}9'
+        amounts = utilities.execute_sql(
+            sql_code=query, 
+            args=(self.jurisdiction.county_id, ),
+            db_name=constants.STATEWIDE_DATASETS_DB,
+            attach_db=constants.STARS_DB,
+            fetchall=True
+            )
         
-        self._set_bmy_total_string()
+        if amounts:
+            self.county_pool_amounts = [int(x[0]) for x in amounts]
+            
+            
+    def _set_percent_juri_shares(self):
+        self.jurisdiction_percent_shares = []
         
+        for i, amount in enumerate(self.county_pool_amounts):
+            percent_share = self.juri_pool_amounts[i] / amount if amount else 0
+            
+            self.jurisdiction_percent_shares.append(percent_share)
+            
+            
+    def _process_top_businesses(self):
+        # Concatenates a string with each of the period headers including 
+        # the prefix that is used in the SQL table separated by commas.
+        # This will be part of a SQL code snippet that twill be used to pull
+        # the totals from the county pool data.
+        period_columns_string = ','.join(
+            f'{constants.QUARTER_COLUMN_PREFIX}{quarter}' 
+            for quarter in self.period_headers
+            )
+
+        # Concatenates a string with each of the most recent four periods 
+        # including the prefix that is used in the SQL table separated by 
+        # "+" as the first part of a SQL snippet that will be used to 
+        # sum up the most recent four periods. The other part of the SQL 
+        # code snippet is the "AS" statement and a string to bind the sum
+        # that will be calculated.
+        bmy_total_string = '+'.join(
+            f'{constants.QUARTER_COLUMN_PREFIX}{quarter}'
+            for quarter in self.period_headers[-self.RANK_QUARTERS:]
+            )
+        bmy_total_string += f' AS {self.bmy_column}'
+            
         # columns that will be pulled with the SQL query
-        columns = ','.join(
-            [
-                constants.PERMIT_COLUMN_NAME, constants.BUSINESS_COLUMN_NAME,
-                self.period_columns_string, self.bmy_total_string
-                ]
-            )
+        columns = ','.join([
+            constants.PERMIT_COLUMN_NAME, constants.BUSINESS_COLUMN_NAME,
+            period_columns_string, bmy_total_string
+            ])
+        
+        pool_id = f'{self.jurisdiction.tac[:2]}9'
         
         # gets the top businesses from the county pool data using a SQL query
         # the businesses are grouped by the permit and then ordered highest to
@@ -183,165 +298,66 @@ class CountyPool:
         # of RANK_QUARTERS. The number of businesses returned is specified by 
         # the TOP_PERMIT_COUNT constant
         internal_data = InternalData(
-            is_cash=True, juri_abbrev=pool_abbrev,
+            is_cash=True, juri_abbrev=pool_id,
             columns=columns, group_by=constants.PERMIT_COLUMN_NAME, 
             order_by=self.bmy_column, descending=True, 
             limit=self.TOP_PERMIT_COUNT
             )
           
         data = internal_data.get_data()
-         
+        
         if data:
-            top_businesses = data['data'] 
-            
-            pool_tac = f'{pool_abbrev}99'
+            quarter_totals = [[] for _ in range(self.QUARTER_COUNT)]
+        
+            for business in data['data']:
+                permit = business[0]
+                name = business[1]
                 
-            self.pool_totals = self._get_pool_totals(pool_tac)
-                 
-            if self.pool_totals:
-                self.city_pool_totals = self._get_pool_totals(self.jurisdiction.tac)
+                if not name:
+                    self.blank_business_names.append(permit)
+                
+                self.top_businesses.append(name)
+                
+                # gets the amounts from the list which are between the permit 
+                # and name in the beginning and the bmy total at the end 
+                amounts = business[2:-1]
+                
+                # gets the amounts multiplied by the percent share for the juri
+                amounts = self._get_juri_share_amounts(amounts)
+                
+                self.top_business_amounts.append(amounts)
+                
+                # appends each amount into a list for its quarter
+                for i, amount in enumerate(amounts):
+                    quarter_totals[i].append(amount)
+                
+                # inserts the percent change for the current quarter at the end
+                amounts = self._insert_quarter_change(amounts, name)
+                
+            self.quarter_totals = [sum(amounts) for amounts in quarter_totals]
             
-                if self.city_pool_totals:
-                    self._insert_quarter_change(self.pool_totals, 'pool_totals')
-                    
-                    self._insert_quarter_change(
-                        self.city_pool_totals, 'city_pool_totals'
-                        )
-                         
-                    self._set_percent_juri_shares()
-                         
-                    self._process_top_businesses(top_businesses)
-                        
-                    self._set_all_other_row()
-                        
-                    self.controller.update_progress(
-                        90, 
-                        f'{self.jurisdiction.id}: Writing xlsx output.')
-                                         
-                    self._set_output_path()
-                             
-                    self._create_excel_output()
-                        
-                    if self.blank_business_names:
-                        self._create_blank_businesses_file()
-                        
-                    self.controller.update_progress(
-                        100, f'{self.jurisdiction.id}: Finished'
-                        )
-                    
-                    if self.output_saved and self.selections.open_output:
-                        utilities.open_file(self.output_path)
-                 
-                    
-    def _set_period_colums_string(self):
-        '''
-            Concatenates a string with each of the period headers including 
-            the prefix that is used in the SQL table separated by commas.
-            This will be part of a SQL code snippet that twill be used to pull
-            the totals from the county pool data.
-        '''
-        self.period_columns_string = ''.join(
-            f'{constants.QUARTER_COLUMN_PREFIX}{quarter}, ' 
-            for quarter in self.period_headers
-            )[:-2]
-          
-            
-    def _set_bmy_total_string(self):
-        '''
-            Concatenates a string with each of the most recent four periods 
-            including the prefix that is used in the SQL table separated by 
-            "+" as the first part of a SQL snippet that will be used to 
-            sum up the most recent four periods. The other part of the SQL 
-            code snippet is the "AS" statement and a string to bind the sum
-            that will be calculated. 
-        '''
-        columns = ''.join(
-            f'{constants.QUARTER_COLUMN_PREFIX}{quarter} + '
-            for quarter in self.period_headers[-self.RANK_QUARTERS:]
-            )[:-2]
-            
-        self.bmy_total_string = f'{columns} AS {self.bmy_column}'
-        
-            
-    def _get_pool_totals(self, tac):
-        query = f'''
-            SELECT {self.period_columns_string}
-            FROM {constants.QUARTERLY_COUNTY_POOL_TOTALS_TABLE}
-            WHERE id=?
-            '''
-        
-        totals = utilities.execute_sql(
-            sql_code=query, args=(tac,), db_name=constants.STATEWIDE_DATASETS_DB
-            )
-        
-        return totals
-        
-        
-    def _set_percent_juri_shares(self):
-        self.jurisdiction_percent_shares = []
-        
-        for i, amount in enumerate(self.pool_totals):
-            percent_share = self.city_pool_totals[i] / amount if amount else 0
-            
-            self.jurisdiction_percent_shares.append(percent_share)
-            
-            
-    def _insert_quarter_change(self, amounts, name):
-        new_amount = amounts[-1]
-        old_amount = amounts[-5]
-        
-        quarter_change = self._get_quarter_change(new_amount, old_amount)
-        
-        self.quarter_changes[name] = quarter_change
-        
-        
-    def _get_quarter_change(self, new_amount, old_amount):
-        return (new_amount - old_amount) / old_amount if old_amount else 0
-    
-    
-    def _process_top_businesses(self, top_businesses):
-        quarter_totals = [[] for _ in range(self.QUARTER_COUNT)]
-        
-        for business in top_businesses:
-            permit = business[0]
-            name = business[1]
-            
-            if not name:
-                self.blank_business_names.append(permit)
-            
-            self.top_businesses.append(name)
-            
-            # gets the amounts from the list which are between the permit 
-            # and name in the beginning and the bmy total at the end 
-            amounts = business[2:-1]
-            
-            # gets the amounts multiplied by the percent share for the juri
-            amounts = self._get_juri_share_amounts(amounts)
-            
-            self.top_business_amounts.append(amounts)
-            
-            # appends each amount into a list for its quarter
-            for i, amount in enumerate(amounts):
-                quarter_totals[i].append(amount)
-            
-            # inserts the percent change for the current quarter at the end
-            amounts = self._insert_quarter_change(amounts, name)
-            
-        self.quarter_totals = [sum(amounts) for amounts in quarter_totals]
-        
             
     def _get_juri_share_amounts(self, amounts):
         return [
             amount * self.jurisdiction_percent_shares[i] 
             for i, amount in enumerate(amounts)]
         
+
+    def _insert_quarter_change(self, amounts, name):
+        new_amount = amounts[-1]
+        old_amount = amounts[-5]
         
+        quarter_change = utilities.percent_change(new_amount, old_amount)
+        
+        self.quarter_changes[name] = quarter_change
+    
+
     def _set_all_other_row(self):
         # list of amounts that are the difference of the total pool for 
         # the juri and the total for the top businesses 
         amounts = [
             total - self.quarter_totals[i] 
-            for i, total in enumerate(self.city_pool_totals)]
+            for i, total in enumerate(self.juri_pool_amounts)]
         
         self._insert_quarter_change(amounts, self.other_row_name)
         
@@ -373,31 +389,24 @@ class CountyPool:
             self.sheet_properties['rows']['quarter_headers']['two'])
         
         self._write_totals(
-            self.pool_totals, 'pool_totals')
+            self.county_pool_amounts, 'county_pool_amounts')
         
         self._write_totals(
-            self.city_pool_totals, 'city_pool_totals', color=True,
+            self.juri_pool_amounts, 'juri_pool_amounts', color=True,
             juri_total=True)
         
         self._write_juri_share()
-        
         self._write_businesses()
-        
         self._write_all_other()
-        
         self._write_business_descriptions()
-        
         self._write_footer()
         
         self._set_rows()
-        
         self._set_columns()
-        
         self._set_page()
         
         try:
             self.wb.close()
-            
             self.output_saved = True
         
         except PermissionError:
@@ -576,7 +585,7 @@ class CountyPool:
     def _write_quarters(self, sheet_row):
         sheet_col = self.sheet_properties['columns']['first_quarter']
         
-        for quarter in self.period_headers:
+        for period in self.period_headers:
             format_name = (
                 'current_quarter' if self._is_current_period(sheet_col)
                 else 'quarter')
@@ -584,7 +593,7 @@ class CountyPool:
             cell_format = self.formats[format_name]
             
             self.ws.write(
-                sheet_row, sheet_col, quarter, cell_format)
+                sheet_row, sheet_col, period, cell_format)
             
             sheet_col += 1
             
@@ -637,7 +646,7 @@ class CountyPool:
             sheet_row += 1
             
         # sets the total rows
-        sheet_row = self._get_sheet_row('pool_totals')
+        sheet_row = self._get_sheet_row('county_pool_amounts')
         for _ in range(3):
             self.ws.set_row(sheet_row, row_height)
             
