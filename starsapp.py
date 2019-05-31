@@ -37,6 +37,7 @@ from dropfile import DropDetail
 from dropfile import DropDetailJoin
 from econtotals import EconTotals
 from exportbusinessdetail import ExportBusinessDetail
+import exportcradata
 import loadbusinesscodetotals
 from loaddetail import FetchDetail
 import loadgeoranges
@@ -872,11 +873,19 @@ class Menu(tk.Menu):
         export_menu.add_command(
             label='All Econ Totals', command=self._export_econ_totals
             )
+        
+        export_menu.add_command(
+            label='CRA Data', command=lambda:exportcradata.Controller(
+                self.controller.get_period_options(), 
+                self.controller.get_period()
+                )
+            )
           
         load_menu.add_command(
             label='Business Code Totals', 
             command=lambda:loadbusinesscodetotals.Controller(
-                self.controller.get_period_options(), self.controller.get_period()
+                self.controller.get_period_options(), 
+                self.controller.get_period()
                 )
             )
          
