@@ -1152,7 +1152,7 @@ class Controller:
     # on the queue tree
     COUNT_FOR_QUEUE_SCROLL = 30 
     
-    PERIOD_YEARS = 20
+    PERIOD_YEARS = 30
     
     
     def __init__(self):
