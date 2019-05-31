@@ -357,7 +357,7 @@ class Stcl:
                     "based on its residents' effective buying income "
                     "(disposable income) compared to "
                     f"{self.jurisdiction.region_name.title()} regional "
-                    "purchasing habits."
+                    "purchasing habits. The dotted line is at 100% capture."
                     )
                         
                 self._set_report_title()
@@ -1274,6 +1274,10 @@ class Stcl:
         self.chart_ws.write_column(first_row, label_column, all_labels)
         self.chart_ws.write_column(first_row, value_column, all_values)
         
+        self.chart_ws.write_column(
+            first_row, value_column+1, [1 for _ in range(len(all_values))]
+            )
+        
         # creates the chart
         chart = self.wb.add_chart({'type': 'column'})
         #chart.set_style(4)
@@ -1285,8 +1289,12 @@ class Stcl:
                 ],
             
             'data_labels': {
-                'font': {'bold': True, 'size': CHART_FONT_SIZE}, 
-                'num_format': '0%', 'value': True
+                'value': True,  'num_format': '0%', 
+                'font': {
+                    'bold': True, 
+                    'size': CHART_FONT_SIZE
+                    },
+                
                 },
             
             'values': [
@@ -1325,6 +1333,26 @@ class Stcl:
             'width': self.chart_properties['width'], 
             'height': self.chart_properties['height']
             })
+        
+        
+        line_chart = self.wb.add_chart({'type': 'line'})
+        
+        line_chart.add_series({
+            'values': [
+                sheet_name, first_row, value_column+1, end_row, value_column+1
+                ],
+            
+            'categories': [
+                sheet_name, first_row, label_column, end_row, label_column
+                ],
+            
+            'line': {
+                'color': constants.BLUE_THEME_COLOR,
+                'dash_type': 'round_dot'
+                }
+            })
+        
+        chart.combine(line_chart)
              
         self.chart_ws.insert_chart(
             self.chart_sheet_properties['first_row'], 
@@ -1385,7 +1413,7 @@ class Stcl:
         last_column = self.chart_sheet_properties['last_column']
         
         self.chart_ws.merge_range(
-            row, column, row + 1, last_column, self.chart_message, 
+            row, column, row + 2, last_column, self.chart_message, 
             self.formats['chart_message']
             )
         
