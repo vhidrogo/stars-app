@@ -381,24 +381,46 @@ class Summary:
     def main(self, jurisdiction):
         self.jurisdiction = jurisdiction
         
+        self.controller.update_progress(
+            0, 
+            f'{self.jurisdiction.id}: Fetching top '
+            f'{self.TOP_GENERATOR_COUNT} generators.'
+            )
+        
         self.jurisdiction_table = utilities.get_jurisdiction_table_name(
             self.jurisdiction.id
             )
         
         self._set_top_generators()
+        
+        self.controller.update_progress(
+            70, f'{self.jurisdiction.id}: Fetching category data.'
+            )
+        
         self._set_jurisdiction_category_totals()
         self._set_region_category_totals()
         self._set_state_category_totals()
+        
+        self.controller.update_progress(
+            80, f'{self.jurisdiction.id}: Fetching segments data.'
+            )
+        
         self._set_top_segments()
         self._set_top_segment_ids()
         self._set_top_segments_region()
         self._set_top_segments_state()
         
-        self._set_output_path()
+        self.controller.update_progress(
+            95, f'{self.jurisdiction.id}: Writing {self.output_type} output.'
+            )
         
+        self._set_output_path()
         self._write_output()
-                 
         self._save_output()
+        
+        self.controller.update_progress(
+            100, f'{self.jurisdiction.id}: Finished.'
+            )
                  
         if self.output_saved and self.selections.open_output:
             utilities.open_file(self.output_path)
