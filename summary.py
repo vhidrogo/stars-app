@@ -723,9 +723,11 @@ class Summary:
         first_column = self._sheet_column('jurisdiction_name_first')
         last_column = self._sheet_column('jurisdiction_name_last')
         
+        name = utilities.fetch_jurisdiction_header(self.jurisdiction.name)
+        
         self.ws.merge_range(
             first_row, first_column, last_row, last_column, 
-            self.jurisdiction.name.upper(), self.formats['jurisdiction_name'] 
+            name, self.formats['jurisdiction_name'] 
             )
 
 
